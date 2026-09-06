@@ -2,7 +2,10 @@
 // the daemon HTTP API and the MCP server.
 package authz
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
 
 // Role is the permission level of a caller. Roles are ordered: each role
 // includes every permission of the roles below it.
@@ -94,12 +97,7 @@ func (p Principal) Sees(sourceID int64) bool {
 	if !p.Scoped() {
 		return true
 	}
-	for _, id := range p.VisibleSourceIDs {
-		if id == sourceID {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(p.VisibleSourceIDs, sourceID)
 }
 
 // RestrictSources intersects a requested source set with the visible one. A

@@ -48,8 +48,7 @@ func TestScopedEngineParity(t *testing.T) {
 				assert.Equal(t, innerType.Implements(iface), wrappedType.Implements(iface),
 					"%s: wrapper must implement %s exactly when the engine does", name, iface)
 			}
-			for i := range innerType.NumMethod() {
-				method := innerType.Method(i)
+			for method := range innerType.Methods() {
 				_, ok := wrappedType.MethodByName(method.Name)
 				assert.True(t, ok, "%s: exported method %s is not scoped by the wrapper", name, method.Name)
 			}
@@ -103,7 +102,7 @@ func (r *recordingEngine) ListAccounts(context.Context) ([]AccountInfo, error) {
 	return []AccountInfo{{ID: 1}, {ID: 2}, {ID: 3}}, nil
 }
 
-func int64Ptr(v int64) *int64 { return &v }
+func int64Ptr(v int64) *int64 { return new(v) }
 
 func TestScopedEngineRestrictsFilters(t *testing.T) {
 	require := require.New(t)
@@ -195,7 +194,7 @@ func TestScopedEngineTextViewsNeedOneSource(t *testing.T) {
 
 	many := &scopedEngine{visible: []int64{4, 5}, set: map[int64]struct{}{4: {}, 5: {}}}
 	_, err = many.restrictSingle(nil)
-	assert.ErrorIs(err, ErrScopeRequiresSource)
+	require.ErrorIs(err, ErrScopeRequiresSource)
 	source, err = many.restrictSingle(int64Ptr(5))
 	require.NoError(err)
 	assert.Equal(int64(5), *source)

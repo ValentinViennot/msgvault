@@ -10,13 +10,13 @@ import (
 
 // User is one user of the daemon as administrators see them.
 type User struct {
-	ID          int64
-	Email       string
-	DisplayName string
-	Role        string
-	Disabled    bool
-	LastLoginAt *time.Time
-	SourceIDs   []int64
+	ID          int64      `json:"id"`
+	Email       string     `json:"email"`
+	DisplayName string     `json:"display_name,omitempty"`
+	Role        string     `json:"role"`
+	Disabled    bool       `json:"disabled"`
+	LastLoginAt *time.Time `json:"last_login_at,omitempty"`
+	SourceIDs   []int64    `json:"source_ids"`
 }
 
 func userFromGenerated(summary generated.UserSummary) User {
