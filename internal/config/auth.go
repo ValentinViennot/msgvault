@@ -43,7 +43,7 @@ func (a *AuthConfig) ApplyDefaults() {
 // Validate checks the structural rules of [[auth.api_keys]]. Secrets read
 // from the environment are resolved later by ResolveAPIKeys so that a config
 // file shared by several processes still loads where a variable is absent.
-func (a AuthConfig) Validate() error {
+func (a *AuthConfig) Validate() error {
 	seen := make(map[string]struct{}, len(a.APIKeys))
 	for i, key := range a.APIKeys {
 		if key.Name == "" {
@@ -70,7 +70,7 @@ func (a AuthConfig) Validate() error {
 
 // APIKeyLoginEnabled reports whether the Web UI may exchange an API key for a
 // browser session.
-func (a AuthConfig) APIKeyLoginEnabled() bool {
+func (a *AuthConfig) APIKeyLoginEnabled() bool {
 	return a.APIKeyLogin == nil || *a.APIKeyLogin
 }
 
@@ -84,7 +84,7 @@ type ResolvedAPIKey struct {
 
 // ResolveAPIKeys returns the usable named keys. An entry whose key_env is
 // unset is skipped and reported as a warning instead of failing the load.
-func (a AuthConfig) ResolveAPIKeys(lookupEnv func(string) string) ([]ResolvedAPIKey, []string) {
+func (a *AuthConfig) ResolveAPIKeys(lookupEnv func(string) string) ([]ResolvedAPIKey, []string) {
 	if lookupEnv == nil {
 		lookupEnv = os.Getenv
 	}

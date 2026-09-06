@@ -39,9 +39,9 @@ func TestParseRole(t *testing.T) {
 		assert.Equal(role, parsed)
 	}
 	_, err := ParseRole("Admin")
-	assert.Error(err, "roles are case-sensitive after config normalisation")
+	require.Error(err, "roles are case-sensitive after config normalisation")
 	_, err = ParseRole("")
-	assert.Error(err)
+	require.Error(err)
 }
 
 func TestPrincipalCan(t *testing.T) {

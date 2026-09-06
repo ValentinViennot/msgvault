@@ -40,7 +40,9 @@ func rawAuthorizedToolNames(t *testing.T, handler http.Handler, authorization st
 	for _, tool := range tools {
 		entry, ok := tool.(map[string]any)
 		require.True(t, ok)
-		names = append(names, entry["name"].(string))
+		name, ok := entry["name"].(string)
+		require.True(t, ok)
+		names = append(names, name)
 	}
 	return names, recorder.Code
 }
