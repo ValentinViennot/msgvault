@@ -103,10 +103,19 @@ the provider's access tokens. MCP clients discover the authorization server
 from that document and sign the user in through the provider; the tools they
 see follow the user's role and the token's `msgvault:read` / `msgvault:write`
 scopes. Register an API resource named by the same URL at the provider with
-those two permissions.
+those two permissions. The challenge asks clients for both permissions
+together with the identity scopes, so one consent covers reads and writes and
+the person's role decides which tools appear.
 
-Claude Code connects with a client registered at the provider (a public client
-with PKCE and Claude Code's localhost callback):
+Claude Code and claude.ai connectors identify themselves with Client ID
+Metadata Documents, so no client registration is needed when the provider
+accepts them: allow Claude's document URLs at the provider (Pocket ID:
+*Application Configuration → OIDC → Allowed metadata document URLs*, for
+example `https://claude.ai/*`), grant metadata-document clients the two
+permissions on the API resource, and adding the MCP URL in Claude is enough.
+
+Without metadata documents, Claude Code connects with a client registered at
+the provider (a public client with PKCE and Claude Code's localhost callback):
 
 ```bash
 claude mcp add --transport http msgvault https://mcp.example.com/mcp \

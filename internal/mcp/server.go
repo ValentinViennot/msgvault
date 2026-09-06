@@ -432,7 +432,7 @@ func bearerChallenge(provider *oidc.Provider) string {
 	if provider == nil || !provider.Config().BearerEnabled() {
 		return "Bearer"
 	}
-	return `Bearer resource_metadata="` + resourceMetadataURL(provider.Config().Resource) + `", scope="` + oidc.ScopeRead + `"`
+	return `Bearer resource_metadata="` + resourceMetadataURL(provider.Config().Resource) + `", scope="` + strings.Join(provider.BearerScopes(), " ") + `"`
 }
 
 // protectedResourceMetadataHandler serves the RFC 9728 document that tells
@@ -453,7 +453,7 @@ func protectedResourceMetadataHandler(provider *oidc.Provider) http.Handler {
 			"resource":                 cfg.Resource,
 			"resource_name":            "msgvault",
 			"authorization_servers":    []string{cfg.Issuer},
-			"scopes_supported":         []string{oidc.ScopeRead, oidc.ScopeWrite},
+			"scopes_supported":         provider.BearerScopes(),
 			"bearer_methods_supported": []string{"header"},
 		})
 	})
@@ -510,7 +510,7 @@ func bearerAuthHandler(apiKey string, keys []NamedKey, provider *oidc.Provider, 
 						case !ok:
 							slog.Warn("MCP access token without a role", "email", identity.Email, "subject", identity.Subject)
 						case !identity.HasScope(oidc.ScopeRead):
-							w.Header().Set("WWW-Authenticate", `Bearer error="insufficient_scope", scope="`+oidc.ScopeRead+`", resource_metadata="`+resourceMetadataURL(provider.Config().Resource)+`"`)
+							w.Header().Set("WWW-Authenticate", `Bearer error="insufficient_scope", scope="`+strings.Join(provider.BearerScopes(), " ")+`", resource_metadata="`+resourceMetadataURL(provider.Config().Resource)+`"`)
 							http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 							return
 						default:
