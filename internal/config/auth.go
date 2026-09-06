@@ -150,23 +150,16 @@ func splitList(value string) []string {
 // supplies the secret; KeyEnv names an environment variable so the secret can
 // stay out of config.toml.
 type APIKeyConfig struct {
-<<<<<<< HEAD
-	Name   string `toml:"name"`
-	Key    string `toml:"key"`
-	KeyEnv string `toml:"key_env"`
-	Role   string `toml:"role"`
-	// User binds the key to a user's address: the key then sees that user's
-	// sources. A key without a user and without the admin role sees none.
-	User string `toml:"user"`
-	// OnBehalfOf lets an admin key act for a user named in the
-	// X-Msgvault-On-Behalf-Of header; only the MCP sidecar needs it.
-	OnBehalfOf bool `toml:"on_behalf_of"`
-=======
 	Name   string `toml:"name" json:"name"`
 	Key    string `toml:"key" json:"key,omitempty"`
 	KeyEnv string `toml:"key_env" json:"key_env,omitempty"`
 	Role   string `toml:"role" json:"role,omitempty"`
->>>>>>> feat/auth-oidc
+	// User binds the key to a user's address: the key then sees that user's
+	// sources. A key without a user and without the admin role sees none.
+	User string `toml:"user" json:"user,omitempty"`
+	// OnBehalfOf lets an admin key act for a user named in the
+	// X-Msgvault-On-Behalf-Of header; only the MCP sidecar needs it.
+	OnBehalfOf bool `toml:"on_behalf_of" json:"on_behalf_of,omitempty"`
 }
 
 // ApplyDefaults trims names and gives keys without a role the least privilege.
