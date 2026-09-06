@@ -53,7 +53,10 @@ All notable changes to msgvault, grouped by release.
   `users` and `user_identities` tables. `[auth.oidc]`, `[auth] api_key_login`,
   and `[server] trusted_proxies` accept environment overrides
   (`MSGVAULT_AUTH_OIDC_*`, `MSGVAULT_AUTH_API_KEY_LOGIN`,
-  `MSGVAULT_SERVER_TRUSTED_PROXIES`) for container deployments.
+  `MSGVAULT_SERVER_TRUSTED_PROXIES`) for container deployments, which can
+  also declare named keys with `MSGVAULT_AUTH_API_KEYS` (a JSON array of the
+  same entries) and `[remote]` with `MSGVAULT_REMOTE_URL`,
+  `MSGVAULT_REMOTE_API_KEY`, and `MSGVAULT_REMOTE_ALLOW_INSECURE`.
 
 - Per-user visible sources. Administrators bind sources to users
   (`msgvault user`, Settings → Users, `GET/PUT/PATCH /api/v1/users…`), and
