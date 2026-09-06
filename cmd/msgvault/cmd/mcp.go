@@ -32,7 +32,7 @@ var mcpCmd = &cobra.Command{
 
 This allows Claude Desktop (or any MCP client) to query your archive
 using tools like search_metadata, search_message_bodies, search_document_attachments, semantic_search_messages, get_message, list_messages, get_stats,
-aggregate, and stage_deletion.
+aggregate, list_saved_views, run_saved_view, and stage_deletion.
 
 Add to Claude Desktop config:
   {
@@ -121,6 +121,7 @@ func daemonMCPServeOptions(ctx context.Context, st *daemonclient.Client) (mcpser
 		DocumentSearcher:   st,
 		PersonFileSearcher: daemonMCPPersonFileSearcher{client: st},
 		DataDir:            cfg.Data.DataDir,
+		SavedViews:         st,
 	}
 	compatible, capabilityErr := st.SupportsAPISchemaVersion(ctx, peopleMinAPISchemaVersion)
 	if capabilityErr != nil {
@@ -301,7 +302,7 @@ func init() {
 			"a trusted network boundary or authenticating reverse proxy.")
 	mcpCmd.Flags().BoolVar(&mcpHTTPAllowWrites, "http-allow-writes", false,
 		"Expose write-class MCP tools over HTTP. This permits attachment exports, "+
-			"deletion manifests, and profile writes separately enabled with "+
+			"deletion manifests, Saved View management, and profile writes separately enabled with "+
 			"--allow-profile-writes; enable it only for trusted, authenticated clients.")
 	mcpCmd.Flags().BoolVar(&mcpAllowProfileWrites, "allow-profile-writes", false,
 		"Expose person promotion and private Notes writes. Model tool calls "+

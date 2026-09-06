@@ -3,7 +3,7 @@ title: MCP Server
 description: Expose your email, chat, calendar, and meeting archive to AI assistants via MCP.
 ---
 
-The MCP server operates on your msgvault archive through the selected daemon, not your live Gmail account. Without `[remote].url`, `msgvault mcp` starts or reuses the local background daemon; with `[remote].url`, it uses that remote server. The AI cannot send emails, modify labels, or access your Google credentials. Standard read and search operations go through the daemon. If [vector search](/docs/usage/vector-search/) is enabled, semantic and hybrid searches also call the embedding endpoint configured in `[vector.embeddings]`; use a local or self-hosted endpoint if message text must stay on your machine or network. The `stage_deletion` tool asks the selected daemon to save a deletion manifest, and `export_attachment` saves an attachment to a requested path on the MCP server's filesystem. Neither modifies the database, and actual deletion still requires you to run `msgvault delete-staged` from the CLI. You control when data enters the archive (via sync and import commands) and when anything is deleted (via the explicit [deletion workflow](/docs/usage/deletion/)). Compared to giving an AI assistant direct OAuth access to your mailbox, this is a fundamentally smaller attack surface.
+The MCP server operates on your msgvault archive through the selected daemon, not your live Gmail account. Without `[remote].url`, `msgvault mcp` starts or reuses the local background daemon; with `[remote].url`, it uses that remote server. The AI cannot send emails, modify labels, or access your Google credentials. Standard read and search operations go through the daemon. If [vector search](/docs/usage/vector-search/) is enabled, semantic and hybrid searches also call the embedding endpoint configured in `[vector.embeddings]`; use a local or self-hosted endpoint if message text must stay on your machine or network. The `stage_deletion` tool asks the selected daemon to save a deletion manifest, and `export_attachment` saves an attachment to a requested path on the MCP server's filesystem. Neither modifies the database, and actual deletion still requires you to run `msgvault delete-staged` from the CLI. Saved View management tools change only persistent reusable view definitions; deleting a Saved View never deletes archive messages. You control when data enters the archive (via sync and import commands) and when anything is deleted (via the explicit [deletion workflow](/docs/usage/deletion/)). Compared to giving an AI assistant direct OAuth access to your mailbox, this is a fundamentally smaller attack surface.
 
 ## Setup
 
@@ -143,6 +143,12 @@ The MCP server exposes the following tools to connected AI clients:
 | `export_attachment` | Save attachment to filesystem | `attachment_id` (int), `destination` (string) |
 | `get_stats` | Archive overview statistics. Includes vector index state when configured. | — |
 | `aggregate` | Grouped statistics (top senders, domains, labels, or message volume by calendar year) | `group_by` (string: sender/recipient/domain/label/time), `limit` (int), `after` (string), `before` (string), `account` (string) |
+| `list_saved_views` | List persistent reusable Saved Views and their complete definitions. Read-only. | — |
+| `get_saved_view` | Get one Saved View and its canonical definition and revision. Read-only. | `id` (int, required) |
+| `run_saved_view` | Execute a Saved View through Explore without reconstructing its query. Returns typed entries, groups, or files. Read-only. | `id` (int, required), `limit` (int), `cursor` (string) |
+| `create_saved_view` | Create a persistent Saved View. Write-class. | `name` (string, required), `canonical_state` (object, required), `schema_version` (int, required; currently `1`), `description` (string) |
+| `update_saved_view` | Patch supplied Saved View fields using optimistic revision checking. Write-class. | `id` (int, required), `revision` (int, required), at least one of `name`, `description`, `canonical_state`, `schema_version` |
+| `delete_saved_view` | Delete a Saved View definition, not archive messages. Write-class and destructive. | `id` (int, required), `revision` (int, required) |
 | `stage_deletion` | Stage messages for deletion (creates manifest only) | `query` (string) OR structured filters: `from` (string), `domain` (string), `label` (string), `after` (string), `before` (string), `has_attachment` (bool); optional: `account` (string) |
 | `get_person_profile` | One durable person's overview from local derived state: display name, tracking, contact state (first/last contact, last inbound and outbound, interaction count, inferred channel), the curated `primary_channel`, non-sensitive attributes, current employment, typed relationships, contact points, dates, and categories. Excludes sensitive attributes, private Notes, addresses, and media; makes no provider calls. | `person_id` (int, required) |
 
@@ -217,6 +223,32 @@ top-level `mode`, `pool_saturated`, and `generation` fields. When
 `explain = true`, each item in `data` may include a `score` object with
 the fused ranking components.
 
+### Saved Views
+
+Saved Views are persistent reusable query and presentation definitions shared
+with msgvault's Web UI through the selected daemon. Use `list_saved_views` to
+discover them and prefer `run_saved_view` over manually rebuilding a known
+view's query. Execution preserves its query, full-text/semantic/hybrid search
+mode, filters, grouping, presentation, and sort. Each response identifies its
+`result_kind` as `entries`, `groups`, or `files` and provides the matching typed
+array. Request the next page with the opaque `next_cursor` as `cursor`;
+`run_saved_view` defaults to 20 results and caps each page at 50.
+
+Semantic and hybrid Saved Views require configured, ready
+[vector search](/docs/usage/vector-search/). The tool returns the vector capability
+or index-state error when unavailable and never silently downgrades the view to
+full-text or metadata search.
+
+Create, update, and delete use the same Saved View validation and persistent
+state as the API and Web UI. Updates patch only supplied fields. Pass the latest
+`revision` returned by list, get, create, or update; a stale revision returns a
+conflict so the agent can reload before retrying. An empty update description
+clears it.
+
+Stdio exposes these write-class tools. StreamableHTTP hides them by default;
+pass `--http-allow-writes` only for trusted clients to expose Saved View
+management, attachment export, and deletion staging over HTTP.
+
 ## Example Usage with Claude
 
 Once configured, you can ask Claude questions like:
@@ -263,6 +295,7 @@ msgvault mcp --http 8080
 | `--no-sqlite-scanner` | `false` | Deprecated in 0.17.0; cache engine selection is daemon-managed. Use `[analytics].engine = "sql"` for live SQL. |
 | `--http` | — | Serve over MCP StreamableHTTP instead of stdio. Bare ports bind to `127.0.0.1`; non-loopback addresses require `[server].api_key` or `--http-allow-insecure`. |
 | `--http-allow-insecure` | `false` | Allow non-loopback HTTP binding without `[server].api_key`. A configured key is still enforced. Without a key, use only behind your own network or authentication layer. |
+| `--http-allow-writes` | `false` | Expose Saved View management, attachment export, and deletion staging tools over StreamableHTTP. Enable only for trusted, authenticated clients. |
 
 Deprecated in 0.17.0: MCP analytics behavior moved from per-command flags to daemon configuration. Use `[analytics].engine` and `[analytics].auto_build_cache` in `config.toml` so local and remote daemon behavior stays consistent.
 
