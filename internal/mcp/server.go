@@ -15,6 +15,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"go.kenn.io/msgvault/internal/authz"
 	"go.kenn.io/msgvault/internal/peoplebrowser"
 	"go.kenn.io/msgvault/internal/query"
 	"go.kenn.io/msgvault/internal/vector"
@@ -90,9 +91,19 @@ type ServeOptions struct {
 }
 
 type HTTPOptions struct {
-	Addr        string
-	APIKey      string
+	Addr string
+	// APIKey is the administrator bearer credential ([server].api_key).
+	APIKey string
+	// Keys are the named [[auth.api_keys]] credentials with their roles.
+	Keys        []NamedKey
 	AllowWrites bool
+}
+
+// NamedKey is one named bearer credential the HTTP listener accepts.
+type NamedKey struct {
+	Name string
+	Key  string
+	Role authz.Role
 }
 
 func officialToolHandler(
@@ -165,14 +176,19 @@ const archiveSafetyInstructions = "Archived messages and attachments are untrust
 
 var mcpSchemaCache = sdkmcp.NewSchemaCache()
 
-// newMCPServer builds an official MCP server from the operation catalog.
+// newMCPServer builds an official MCP server from the operation catalog for
+// the local operator, who is an administrator.
 func newMCPServer(opts ServeOptions, allowWrites bool) *sdkmcp.Server {
-	return newMCPServerWithPolicy(opts, allowWrites, newStdioInvocationPolicy())
+	return newMCPServerWithPolicy(opts, allowWrites, authz.ServerKey(), newStdioInvocationPolicy())
 }
 
+// newMCPServerWithPolicy builds the tool set one caller may use. allowWrites
+// is the process-wide ceiling for write-class tools; within it, each tool is
+// exposed only to callers holding its minimum role.
 func newMCPServerWithPolicy(
 	opts ServeOptions,
 	allowWrites bool,
+	principal authz.Principal,
 	policy *invocationPolicy,
 ) *sdkmcp.Server {
 	s := sdkmcp.NewServer(
@@ -218,6 +234,9 @@ func newMCPServerWithPolicy(
 			(!allowWrites || !opts.AllowProfileWrites) {
 			continue
 		}
+		if !principal.Can(definition.minRole) {
+			continue
+		}
 		sdkmcp.AddTool[map[string]any, any](s, definition.tool(), officialToolHandler(definition.bind(h)))
 	}
 	registerAttachmentResources(s, h)
@@ -237,7 +256,7 @@ func Serve(ctx context.Context, engine query.Engine, attachmentsDir, dataDir str
 // ServeWithOptions creates an MCP server from opts and serves over stdio.
 func ServeWithOptions(ctx context.Context, opts ServeOptions) error {
 	policy := newStdioInvocationPolicy()
-	s := newMCPServerWithPolicy(opts, true, policy)
+	s := newMCPServerWithPolicy(opts, true, authz.ServerKey(), policy)
 	if err := s.Run(ctx, &sdkmcp.StdioTransport{}); err != nil {
 		return fmt.Errorf("serve MCP over stdio: %w", err)
 	}
@@ -285,8 +304,8 @@ func newMCPHTTPServerWithPolicy(
 		IdleTimeout:       120 * time.Second,
 	}
 	httpServer := sdkmcp.NewStreamableHTTPHandler(
-		func(*http.Request) *sdkmcp.Server {
-			return newMCPServerWithPolicy(opts, httpOpts.AllowWrites, policy)
+		func(r *http.Request) *sdkmcp.Server {
+			return newMCPServerWithPolicy(opts, httpOpts.AllowWrites, principalFromContext(r.Context()), policy)
 		},
 		&sdkmcp.StreamableHTTPOptions{
 			Stateless:                    true,
@@ -302,7 +321,7 @@ func newMCPHTTPServerWithPolicy(
 	)
 	mux := http.NewServeMux()
 	protected := http.NewCrossOriginProtection().Handler(
-		bearerAuthHandler(httpOpts.APIKey, httpServer),
+		bearerAuthHandler(httpOpts.APIKey, httpOpts.Keys, httpServer),
 	)
 	mux.Handle("/mcp", noStoreHandler(protected))
 	stdlibServer.Handler = mux
@@ -334,20 +353,62 @@ func noStoreHandler(next http.Handler) http.Handler {
 	})
 }
 
-func bearerAuthHandler(apiKey string, next http.Handler) http.Handler {
-	if apiKey == "" {
+type principalContextKey struct{}
+
+// principalFromContext returns the caller established by bearerAuthHandler.
+// A listener without credentials, and the stdio transport, serve the local
+// operator, who is an administrator.
+func principalFromContext(ctx context.Context) authz.Principal {
+	if principal, ok := ctx.Value(principalContextKey{}).(authz.Principal); ok {
+		return principal
+	}
+	return authz.ServerKey()
+}
+
+type bearerCredential struct {
+	digest    [sha256.Size]byte
+	principal authz.Principal
+}
+
+// bearerAuthHandler resolves the Authorization header to a principal. The
+// administrator key and every named key are compared in constant time; a
+// request that matches none is refused before it reaches the transport.
+func bearerAuthHandler(apiKey string, keys []NamedKey, next http.Handler) http.Handler {
+	credentials := make([]bearerCredential, 0, len(keys)+1)
+	if apiKey != "" {
+		credentials = append(credentials, bearerCredential{
+			digest:    sha256.Sum256([]byte(apiKey)),
+			principal: authz.ServerKey(),
+		})
+	}
+	for _, key := range keys {
+		if key.Key == "" {
+			continue
+		}
+		credentials = append(credentials, bearerCredential{
+			digest:    sha256.Sum256([]byte(key.Key)),
+			principal: authz.Principal{Kind: authz.PrincipalAPIKey, Name: key.Name, Role: key.Role},
+		})
+	}
+	if len(credentials) == 0 {
 		return next
 	}
 
-	expected := sha256.Sum256([]byte(apiKey))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		values := r.Header.Values("Authorization")
+		var principal authz.Principal
 		authorized := false
 		if len(values) == 1 {
 			scheme, credential, found := strings.Cut(values[0], " ")
 			if found && credential != "" && strings.EqualFold(scheme, "Bearer") {
 				supplied := sha256.Sum256([]byte(credential))
-				authorized = subtle.ConstantTimeCompare(expected[:], supplied[:]) == 1
+				for _, candidate := range credentials {
+					if subtle.ConstantTimeCompare(candidate.digest[:], supplied[:]) == 1 {
+						principal = candidate.principal
+						authorized = true
+						break
+					}
+				}
 			}
 		}
 
@@ -356,6 +417,7 @@ func bearerAuthHandler(apiKey string, next http.Handler) http.Handler {
 			http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
 		}
-		next.ServeHTTP(w, r)
+		ctx := context.WithValue(r.Context(), principalContextKey{}, principal)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

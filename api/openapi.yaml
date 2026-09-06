@@ -9280,6 +9280,29 @@ components:
       required:
         - ok
       type: object
+    PrincipalInfo:
+      additionalProperties: true
+      properties:
+        email:
+          type: string
+        kind:
+          enum:
+            - loopback
+            - api_key
+            - user
+          type: string
+        name:
+          type: string
+        role:
+          enum:
+            - viewer
+            - member
+            - admin
+          type: string
+      required:
+        - kind
+        - role
+      type: object
     Progress:
       additionalProperties: true
       properties:
@@ -10196,12 +10219,20 @@ components:
           type: string
         https:
           type: boolean
+        login_methods:
+          description: "Available login methods: api_key"
+          items:
+            type: string
+          type: array
         plain_http_warning:
           type: boolean
+        principal:
+          $ref: "#/components/schemas/PrincipalInfo"
       required:
         - auth_mode
         - https
         - plain_http_warning
+        - login_methods
       type: object
     SetOrganizationAttributeBody:
       additionalProperties: false
@@ -11832,7 +11863,7 @@ components:
       type: apiKey
 info:
   title: msgvault API
-  version: 2.16.0
+  version: 2.17.0
 openapi: 3.1.0
 paths:
   /api/ping:
@@ -17215,6 +17246,27 @@ paths:
       security:
         - apiKey: []
       summary: Test task integration discovery, authentication, capabilities, and project
+      tags:
+        - API
+  /api/v1/me:
+    get:
+      operationId: getMe
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrincipalInfo"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Error
+      security:
+        - apiKey: []
+      summary: Get the calling principal
       tags:
         - API
   /api/v1/messages:

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"go.kenn.io/msgvault/internal/authz"
 	"net"
 	"net/http"
 	"slices"
@@ -224,9 +225,12 @@ func isLoopbackRequest(r *http.Request) bool {
 }
 
 type requestAuthentication struct {
-	Mode                  AuthMode
-	SessionID             string
-	Session               browserSession
+	Mode      AuthMode
+	SessionID string
+	Session   browserSession
+	// Principal is the authenticated caller. It is zero only for
+	// AuthModeRequired.
+	Principal             authz.Principal
 	trustedForCLIDuration bool
 }
 
@@ -244,6 +248,7 @@ func (s *Server) classifyAPIRequestDirect(r *http.Request) requestAuthentication
 	if s.cfg.Server.APIKey == "" {
 		return requestAuthentication{
 			Mode:                  AuthModeLoopback,
+			Principal:             authz.Loopback(),
 			trustedForCLIDuration: isLoopbackRequest(r),
 		}
 	}
@@ -255,10 +260,13 @@ func (s *Server) classifyAPIRequestDirect(r *http.Request) requestAuthentication
 	if len(authHeader) > 7 && authHeader[:7] == "Bearer " {
 		authHeader = authHeader[7:]
 	}
-	if constantTimeAPIKeyEqual(authHeader, s.cfg.Server.APIKey) {
+	if principal, ok := s.principalForAPIKey(authHeader); ok {
 		return requestAuthentication{
-			Mode:                  AuthModeAPIKey,
-			trustedForCLIDuration: true,
+			Mode:      AuthModeAPIKey,
+			Principal: principal,
+			// Long-running CLI routes are administrative; other callers keep
+			// the remote request budget.
+			trustedForCLIDuration: principal.Role == authz.RoleAdmin,
 		}
 	}
 
@@ -268,6 +276,7 @@ func (s *Server) classifyAPIRequestDirect(r *http.Request) requestAuthentication
 				Mode:      AuthModeSession,
 				SessionID: cookie.Value,
 				Session:   session,
+				Principal: session.Principal,
 			}
 		}
 	}

@@ -417,6 +417,7 @@ type Config struct {
 	Sync           SyncConfig                      `toml:"sync"`
 	Chat           ChatConfig                      `toml:"chat"`
 	Server         ServerConfig                    `toml:"server"`
+	Auth           AuthConfig                      `toml:"auth"`
 	Analytics      AnalyticsConfig                 `toml:"analytics"`
 	Web            WebConfig                       `toml:"web"`
 	Integrations   IntegrationsConfig              `toml:"integrations"`
@@ -874,6 +875,10 @@ func decodeConfig(cfg *Config, path string, explicit, homeOverride bool, content
 	cfg.Server.ApplyDefaults()
 	cfg.Discord.ApplyDefaults()
 	if err := cfg.Server.Validate(); err != nil {
+		return nil, err
+	}
+	cfg.Auth.ApplyDefaults()
+	if err := cfg.Auth.Validate(); err != nil {
 		return nil, err
 	}
 	cfg.Analytics.ApplyDefaults()

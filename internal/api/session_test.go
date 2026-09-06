@@ -13,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.kenn.io/msgvault/internal/authz"
 	"go.kenn.io/msgvault/internal/config"
 )
 
@@ -25,7 +26,7 @@ func TestSessionStoreCreatesOpaqueExpiringSessions(t *testing.T) {
 	store := newSessionStore(time.Hour)
 	store.now = func() time.Time { return now }
 
-	id, session, err := store.create()
+	id, session, err := store.create(authz.ServerKey())
 	requirements.NoError(err)
 	requirements.NotEmpty(id)
 	assertions.NotContains(id, testSessionAPIKey)
@@ -48,9 +49,9 @@ func TestSessionStoreDeleteAndCloseClearSessions(t *testing.T) {
 	assertions := assert.New(t)
 	requirements := require.New(t)
 	store := newSessionStore(time.Hour)
-	firstID, _, err := store.create()
+	firstID, _, err := store.create(authz.ServerKey())
 	requirements.NoError(err)
-	secondID, _, err := store.create()
+	secondID, _, err := store.create(authz.ServerKey())
 	requirements.NoError(err)
 
 	store.delete(firstID)
@@ -73,13 +74,13 @@ func TestSessionStoreCreatePurgesOnlyBoundedExpiredEntries(t *testing.T) {
 
 	initialSessions := expectedPurgeScanLimit + 5
 	for range initialSessions {
-		_, _, err := store.create()
+		_, _, err := store.create(authz.ServerKey())
 		requirements.NoError(err)
 	}
 	requirements.Len(store.sessions, initialSessions)
 
 	now = now.Add(time.Minute)
-	_, _, err := store.create()
+	_, _, err := store.create(authz.ServerKey())
 	requirements.NoError(err)
 	assert.Len(t, store.sessions, initialSessions+1-expectedPurgeScanLimit,
 		"one create purges at most the bounded scan quota")
@@ -455,4 +456,79 @@ func requireSessionCookie(t *testing.T, resp *httptest.ResponseRecorder) *http.C
 	}
 	require.FailNow(t, "session cookie not found")
 	return nil
+}
+
+func TestLoginWithNamedKeyCreatesRoleBoundSession(t *testing.T) {
+	assert := assert.New(t)
+	require := require.New(t)
+	cfg := &config.Config{
+		Server: config.ServerConfig{APIKey: testSessionAPIKey},
+		Auth: config.AuthConfig{APIKeys: []config.APIKeyConfig{
+			{Name: "reader", Key: "reader-secret-value", Role: string(authz.RoleViewer)},
+		}},
+	}
+	srv := NewServer(cfg, nil, nil, testLogger())
+	t.Cleanup(func() {
+		require.NoError(srv.Shutdown(context.Background()))
+	})
+
+	resp := performSessionRequest(t, srv, http.MethodPost, sessionLoginPath,
+		[]byte(`{"api_key":"reader-secret-value"}`), nil, false)
+	require.Equal(http.StatusOK, resp.Code, resp.Body.String())
+	status := decodeSessionStatus(t, resp)
+	assert.Equal(AuthModeSession, status.AuthMode)
+	assert.Equal([]string{"api_key"}, status.LoginMethods)
+	require.NotNil(status.Principal)
+	assert.Equal(PrincipalInfo{Kind: authz.PrincipalAPIKey, Name: "reader", Role: authz.RoleViewer}, *status.Principal)
+	cookie := requireSessionCookie(t, resp)
+
+	headers := http.Header{"Cookie": []string{cookie.Name + "=" + cookie.Value}}
+	me := performSessionRequest(t, srv, http.MethodGet, "/api/v1/me", nil, headers, false)
+	require.Equal(http.StatusOK, me.Code, me.Body.String())
+	var principal PrincipalInfo
+	require.NoError(decodeJSONBody(me, &principal))
+	assert.Equal(authz.RoleViewer, principal.Role)
+
+	headers.Set(csrfHeaderName, status.CSRFToken)
+	headers.Set("Origin", "http://example.com")
+	forbidden := performSessionRequest(t, srv, http.MethodPost, "/api/v1/saved-views", []byte(`{}`), headers, false)
+	assert.Equal(http.StatusForbidden, forbidden.Code, forbidden.Body.String())
+	assert.Contains(forbidden.Body.String(), `"forbidden"`)
+
+	bootstrap := performSessionRequest(t, srv, http.MethodGet, sessionPath, nil, headers, false)
+	require.Equal(http.StatusOK, bootstrap.Code)
+	bootstrapStatus := decodeSessionStatus(t, bootstrap)
+	require.NotNil(bootstrapStatus.Principal)
+	assert.Equal("reader", bootstrapStatus.Principal.Name)
+}
+
+func TestAPIKeyLoginCanBeDisabled(t *testing.T) {
+	assert := assert.New(t)
+	require := require.New(t)
+	disabled := false
+	cfg := &config.Config{
+		Server: config.ServerConfig{APIKey: testSessionAPIKey},
+		Auth:   config.AuthConfig{APIKeyLogin: &disabled},
+	}
+	srv := NewServer(cfg, nil, nil, testLogger())
+	t.Cleanup(func() {
+		require.NoError(srv.Shutdown(context.Background()))
+	})
+
+	resp := performSessionRequest(t, srv, http.MethodPost, sessionLoginPath,
+		[]byte(`{"api_key":"`+testSessionAPIKey+`"}`), nil, false)
+	assert.Equal(http.StatusForbidden, resp.Code, resp.Body.String())
+	assert.Contains(resp.Body.String(), "api_key_login_disabled")
+
+	bootstrap := performSessionRequest(t, srv, http.MethodGet, sessionPath, nil, nil, false)
+	require.Equal(http.StatusOK, bootstrap.Code)
+	status := decodeSessionStatus(t, bootstrap)
+	assert.Equal(AuthModeRequired, status.AuthMode)
+	assert.Empty(status.LoginMethods)
+	assert.Nil(status.Principal)
+
+	// The key itself still authenticates API clients.
+	me := performSessionRequest(t, srv, http.MethodGet, "/api/v1/me", nil,
+		http.Header{"Authorization": []string{"Bearer " + testSessionAPIKey}}, false)
+	assert.Equal(http.StatusOK, me.Code, me.Body.String())
 }

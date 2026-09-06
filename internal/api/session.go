@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
+	"go.kenn.io/msgvault/internal/authz"
 	"io"
 	"sync"
 	"time"
@@ -21,6 +22,8 @@ const (
 type browserSession struct {
 	CSRFToken string
 	ExpiresAt time.Time
+	// Principal is the caller the session was created for.
+	Principal authz.Principal
 }
 
 type sessionStore struct {
@@ -40,7 +43,7 @@ func newSessionStore(ttl time.Duration) *sessionStore {
 	}
 }
 
-func (s *sessionStore) create() (string, browserSession, error) {
+func (s *sessionStore) create(principal authz.Principal) (string, browserSession, error) {
 	id, err := s.randomToken()
 	if err != nil {
 		return "", browserSession{}, fmt.Errorf("generate session ID: %w", err)
@@ -53,6 +56,7 @@ func (s *sessionStore) create() (string, browserSession, error) {
 	session := browserSession{
 		CSRFToken: csrfToken,
 		ExpiresAt: now.Add(s.ttl),
+		Principal: principal,
 	}
 	s.mu.Lock()
 	s.purgeExpiredLocked(now)

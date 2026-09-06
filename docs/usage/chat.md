@@ -85,6 +85,13 @@ It is separate from `[remote].api_key`, which authenticates `msgvault mcp` to a
 selected remote msgvault daemon. Stdio transport does not use bearer
 authentication.
 
+Named `[[auth.api_keys]]` entries are accepted on the same listener, and each
+key sees only the tools its role permits: a `viewer` key gets the read tools, a
+`member` key adds Saved View management and profile Notes (still behind
+`--http-allow-writes` and `--allow-profile-writes`), and only `admin` keys,
+`[server].api_key` among them, may call `export_attachment` and
+`stage_deletion`. See [Configuration](/docs/configuration/#auth).
+
 ## Available Tools
 
 The MCP server exposes the following tools to connected AI clients:

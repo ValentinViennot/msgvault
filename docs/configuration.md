@@ -593,6 +593,40 @@ For MCP Streamable HTTP, send `[server].api_key` as `Authorization: Bearer
 `[remote].api_key`, which authenticates `msgvault mcp` when it connects to a
 remote daemon.
 
+### `[auth]`
+
+Optional caller model for deployments that serve more than one person or
+program. Without this section, `[server].api_key` is the only credential and it
+is an administrator.
+
+| Key | Default | Description |
+|---|---|---|
+| `api_key_login` | `true` | Whether the Web UI login form accepts an API key. Set to `false` when keys should stay a programmatic credential. |
+
+`[[auth.api_keys]]` entries are additional bearer credentials, each with a role:
+
+```toml
+[[auth.api_keys]]
+name = "reporting"
+key_env = "MSGVAULT_KEY_REPORTING"   # or key = "…"; exactly one of the two
+role = "viewer"                       # viewer (default), member, or admin
+```
+
+| Key | Description |
+|---|---|
+| `name` | Unique label reported by `GET /api/v1/me` and in daemon logs |
+| `key` / `key_env` | The secret, inline or read from an environment variable at startup |
+| `role` | `viewer` reads and analyses the archive; `member` also curates Saved Views, people, organizations, relationships, notes, and message task links; `admin` may do everything, including sync, imports, deletions, settings, and SQL queries |
+
+Named keys work everywhere `[server].api_key` does: the `Authorization` and
+`X-API-Key` headers, the Web UI login form, and bearer authentication on
+`msgvault mcp --http`, where a key sees only the tools its role permits. A
+`key_env` whose variable is unset disables that key with a startup warning
+instead of failing the load, and a named key equal to `[server].api_key` is
+ignored. `[server].api_key` remains required for non-loopback binding and keeps
+its administrator privilege. See [Web UI & API Server](/docs/api-server/#roles)
+for the operations each role covers.
+
 ### `[web]`
 
 Defaults for the daemon-served browser application. These values can also be

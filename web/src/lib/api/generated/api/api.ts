@@ -279,6 +279,7 @@ import type {
   PersonSplitResult,
   PersonSummary,
   PersonTracking,
+  PrincipalInfo,
   ProviderCredentialResponse,
   ProviderCredentialWriteRequest,
   PublishCardDAVPersonPathParameters,
@@ -1619,6 +1620,17 @@ export const testTaskIntegration = (
 ) => {
   return orvalFetch<TaskIntegrationStatusResponse>(
     { url: `/api/v1/integrations/tasks/test`, method: "POST" },
+    options,
+  );
+};
+/**
+ * @summary Get the calling principal
+ */
+export const getMe = (
+  options?: SecondParameter<typeof orvalFetch<PrincipalInfo>>,
+) => {
+  return orvalFetch<PrincipalInfo>(
+    { url: `/api/v1/me`, method: "GET" },
     options,
   );
 };

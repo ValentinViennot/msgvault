@@ -10,6 +10,25 @@ function sessionResponse(authMode: 'loopback' | 'api_key' | 'session' | 'require
   });
 }
 describe('browser session controller', () => {
+  it('exposes the principal and defaults to API-key login for older daemons', async () => {
+    const session = createSessionController(
+      vi.fn<typeof fetch>(async () =>
+        Response.json({
+          auth_mode: 'session',
+          csrf_token: 'csrf-token',
+          https: true,
+          plain_http_warning: false,
+          principal: { kind: 'api_key', name: 'reader', role: 'viewer' },
+          login_methods: ['api_key'],
+        }),
+      ),
+    );
+    expect(session.loginMethods).toEqual(['api_key']);
+    await session.bootstrap();
+    expect(session.principal).toEqual({ kind: 'api_key', name: 'reader', role: 'viewer' });
+    expect(session.canSignOut).toBe(true);
+    expect(session.loginMethods).toEqual(['api_key']);
+  });
   it('bootstraps authentication from the same-origin session endpoint', async () => {
     const fetchFn = vi.fn<typeof fetch>(async () => sessionResponse('session', 'csrf-token'));
     const session = createSessionController(fetchFn);

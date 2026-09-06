@@ -268,7 +268,10 @@ import (
 // POST /api/v1/imports and GET /api/v1/imports/{job_id}. Existing synchronous
 // CLI sync routes, source-status responses, unfiltered statistics, search, and
 // deletion requests are unchanged.
-const APISchemaVersion = "2.16.0"
+// 2.17.0 adds the calling principal to the session bootstrap, the
+// login_methods list, GET /api/v1/me, and 403 forbidden for callers whose
+// role does not cover an operation.
+const APISchemaVersion = "2.17.0"
 
 // OpenAPIDocument builds the API schema from the same Huma route registration
 // used by the daemon. It binds no socket and needs no database.

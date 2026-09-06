@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"go.kenn.io/msgvault/internal/authz"
 	"go.kenn.io/msgvault/internal/query"
 	"go.kenn.io/msgvault/internal/store"
 	"go.kenn.io/msgvault/internal/vector/visual"
@@ -80,6 +81,10 @@ type toolDefinition struct {
 	annotations  *sdkmcp.ToolAnnotations
 	availability func(catalogCapabilities) bool
 	security     toolSecurityClass
+	// minRole is the least privileged caller the tool is exposed to. Reads
+	// go to viewers, curation writes to members, and tools that touch the
+	// server filesystem or stage archive deletions to admins.
+	minRole      authz.Role
 	inputSchema  *jsonschema.Schema
 	outputSchema *jsonschema.Schema
 	handler      catalogToolHandler
@@ -189,6 +194,7 @@ func readDefinition(
 		annotations:  toolAnnotations(true),
 		availability: alwaysAvailable,
 		security:     toolSecurityRead,
+		minRole:      authz.RoleViewer,
 		inputSchema:  inputSchema,
 		outputSchema: outputSchema,
 		handler:      handler,
@@ -206,6 +212,7 @@ func writeDefinition(
 		annotations:  toolAnnotations(false),
 		availability: alwaysAvailable,
 		security:     toolSecurityWrite,
+		minRole:      authz.RoleMember,
 		inputSchema:  inputSchema,
 		outputSchema: outputSchema,
 		handler:      handler,
@@ -219,6 +226,18 @@ func profileWriteDefinition(
 ) toolDefinition {
 	definition := writeDefinition(name, description, inputSchema, outputSchema, handler)
 	definition.security = toolSecurityProfileWrite
+	return definition
+}
+
+// adminWriteDefinition marks a write that only administrators may perform:
+// exporting to the server filesystem or staging archive deletions.
+func adminWriteDefinition(
+	name, description string,
+	inputSchema, outputSchema *jsonschema.Schema,
+	handler catalogToolHandler,
+) toolDefinition {
+	definition := writeDefinition(name, description, inputSchema, outputSchema, handler)
+	definition.minRole = authz.RoleAdmin
 	return definition
 }
 
@@ -526,7 +545,7 @@ func getAttachmentDefinition(_ *handlers) toolDefinition {
 }
 
 func exportAttachmentDefinition(_ *handlers) toolDefinition {
-	return writeDefinition(
+	return adminWriteDefinition(
 		ToolExportAttachment,
 		"Save an attachment to the local filesystem. Use this for file types that cannot be displayed inline (e.g. PDFs, documents). Returns the saved file path.",
 		closedObject(map[string]*jsonschema.Schema{
@@ -637,7 +656,7 @@ func searchByDomainsDefinition(_ *handlers) toolDefinition {
 }
 
 func stageDeletionDefinition(_ *handlers) toolDefinition {
-	return writeDefinition(
+	return adminWriteDefinition(
 		ToolStageDeletion,
 		"Stage messages for deletion. Use EITHER 'query' (Gmail-style search) OR structured filters (from, domain, label, etc.), not both. Does NOT delete immediately. To execute, set '[deletion] remote_enabled = true' in the invoking CLI's config.toml for durable consent, then run 'msgvault delete-staged'. One-command alternative: MSGVAULT_ENABLE_REMOTE_DELETE=1 msgvault delete-staged.",
 		closedObject(map[string]*jsonschema.Schema{

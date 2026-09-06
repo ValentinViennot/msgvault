@@ -1746,6 +1746,42 @@ func (p PersonSplitResultCacheState) Validate() error {
 	}
 }
 
+type PrincipalInfoKind string
+
+const (
+	APIKey                PrincipalInfoKind = "api_key"
+	Loopback              PrincipalInfoKind = "loopback"
+	PrincipalInfoKindUser PrincipalInfoKind = "user"
+)
+
+// Validate checks if the PrincipalInfoKind value is valid
+func (p PrincipalInfoKind) Validate() error {
+	switch p {
+	case APIKey, Loopback, PrincipalInfoKindUser:
+		return nil
+	default:
+		return runtime.NewValidationErrorsFromString("Enum", fmt.Sprintf("must be a valid PrincipalInfoKind value, got: %v", p))
+	}
+}
+
+type PrincipalInfoRole string
+
+const (
+	Admin  PrincipalInfoRole = "admin"
+	Member PrincipalInfoRole = "member"
+	Viewer PrincipalInfoRole = "viewer"
+)
+
+// Validate checks if the PrincipalInfoRole value is valid
+func (p PrincipalInfoRole) Validate() error {
+	switch p {
+	case Admin, Member, Viewer:
+		return nil
+	default:
+		return runtime.NewValidationErrorsFromString("Enum", fmt.Sprintf("must be a valid PrincipalInfoRole value, got: %v", p))
+	}
+}
+
 type ProvenanceDirections string
 
 const (
@@ -1932,16 +1968,16 @@ func (s SecretSettingUpdateAction) Validate() error {
 type SessionStatusAuthMode string
 
 const (
-	APIKey   SessionStatusAuthMode = "api_key"
-	Loopback SessionStatusAuthMode = "loopback"
-	Required SessionStatusAuthMode = "required"
-	Session  SessionStatusAuthMode = "session"
+	Required                      SessionStatusAuthMode = "required"
+	Session                       SessionStatusAuthMode = "session"
+	SessionStatusAuthModeAPIKey   SessionStatusAuthMode = "api_key"
+	SessionStatusAuthModeLoopback SessionStatusAuthMode = "loopback"
 )
 
 // Validate checks if the SessionStatusAuthMode value is valid
 func (s SessionStatusAuthMode) Validate() error {
 	switch s {
-	case APIKey, Loopback, Required, Session:
+	case Required, Session, SessionStatusAuthModeAPIKey, SessionStatusAuthModeLoopback:
 		return nil
 	default:
 		return runtime.NewValidationErrorsFromString("Enum", fmt.Sprintf("must be a valid SessionStatusAuthMode value, got: %v", s))

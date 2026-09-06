@@ -1379,6 +1379,10 @@ type TestTaskIntegrationResponse = TaskIntegrationStatusResponse
 
 type TestTaskIntegrationErrorResponse = ErrorResponse
 
+type GetMeResponse = PrincipalInfo
+
+type GetMeErrorResponse = ErrorResponse
+
 type ListMessagesResponse = MessageListResponse
 
 type ListMessagesErrorResponse = ErrorResponse
@@ -3878,6 +3882,13 @@ type TestTaskIntegrationResp struct {
 	Body         []byte
 	StatusCode   int
 	JSON200      *TestTaskIntegrationResponse
+}
+
+type GetMeResp struct {
+	HTTPResponse *http.Response
+	Body         []byte
+	StatusCode   int
+	JSON200      *GetMeResponse
 }
 
 type ListMessagesResp struct {

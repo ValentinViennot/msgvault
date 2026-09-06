@@ -382,6 +382,8 @@ type Server struct {
 	inlineCache *inlineParseCache
 	spaHandler  http.Handler
 	sessions    *sessionStore
+	// namedKeys are the resolved [[auth.api_keys]] credentials.
+	namedKeys []namedAPIKey
 	// trustedProxies contains only explicitly configured direct proxy peers.
 	// Forwarded scheme/host data is ignored for every other RemoteAddr.
 	trustedProxies   []netip.Prefix
@@ -581,6 +583,7 @@ func NewServerWithOptions(opts ServerOptions) *Server {
 		engine: opts.Engine, mode: opts.AnalyticsMode,
 		analyticsInitializationActive: opts.AnalyticsInitializationActive,
 	})
+	s.loadNamedAPIKeys()
 	if s.taskIdentityResolver == nil {
 		s.taskIdentityResolver = s.resolveTaskMessageIdentity
 	}

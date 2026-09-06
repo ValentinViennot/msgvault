@@ -8722,6 +8722,31 @@ type PingInfo struct {
 	Version *string `json:"version,omitempty"`
 }
 
+type PrincipalInfo struct {
+	Email *string           `json:"email,omitempty"`
+	Kind  PrincipalInfoKind `json:"kind" validate:"required"`
+	Name  *string           `json:"name,omitempty"`
+	Role  PrincipalInfoRole `json:"role" validate:"required"`
+}
+
+func (p PrincipalInfo) Validate() error {
+	var errors runtime.ValidationErrors
+	if v, ok := any(p.Kind).(runtime.Validator); ok {
+		if err := v.Validate(); err != nil {
+			errors = errors.Append("Kind", err)
+		}
+	}
+	if v, ok := any(p.Role).(runtime.Validator); ok {
+		if err := v.Validate(); err != nil {
+			errors = errors.Append("Role", err)
+		}
+	}
+	if len(errors) == 0 {
+		return nil
+	}
+	return errors
+}
+
 type Progress struct {
 	Done  int64 `json:"done"`
 	Total int64 `json:"total"`
@@ -9611,10 +9636,14 @@ func (s SessionLoginRequest) Validate() error {
 }
 
 type SessionStatus struct {
-	AuthMode         SessionStatusAuthMode `json:"auth_mode" validate:"required"`
-	CsrfToken        *string               `json:"csrf_token,omitempty"`
-	HTTPS            bool                  `json:"https"`
-	PlainHTTPWarning bool                  `json:"plain_http_warning"`
+	AuthMode  SessionStatusAuthMode `json:"auth_mode" validate:"required"`
+	CsrfToken *string               `json:"csrf_token,omitempty"`
+	HTTPS     bool                  `json:"https"`
+
+	// LoginMethods Available login methods: api_key
+	LoginMethods     []string       `json:"login_methods" validate:"required"`
+	PlainHTTPWarning bool           `json:"plain_http_warning"`
+	Principal        *PrincipalInfo `json:"principal,omitempty"`
 }
 
 func (s SessionStatus) Validate() error {
@@ -9622,6 +9651,16 @@ func (s SessionStatus) Validate() error {
 	if v, ok := any(s.AuthMode).(runtime.Validator); ok {
 		if err := v.Validate(); err != nil {
 			errors = errors.Append("AuthMode", err)
+		}
+	}
+	if err := typesValidator.Var(s.LoginMethods, "required"); err != nil {
+		errors = errors.Append("LoginMethods", err)
+	}
+	if s.Principal != nil {
+		if v, ok := any(s.Principal).(runtime.Validator); ok {
+			if err := v.Validate(); err != nil {
+				errors = errors.Append("Principal", err)
+			}
 		}
 	}
 	if len(errors) == 0 {

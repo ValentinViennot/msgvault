@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.kenn.io/kit/daemon"
 	"go.kenn.io/msgvault/internal/apiprotocol"
+	"go.kenn.io/msgvault/internal/authz"
 	"go.kenn.io/msgvault/internal/config"
 	"go.kenn.io/msgvault/internal/daemonauth"
 	"go.kenn.io/msgvault/internal/deletion"
@@ -1403,7 +1404,7 @@ func TestCLIRequestDurationPolicy(t *testing.T) {
 			apiKey:      cliTimeoutTestAPIKey,
 			wantTimeout: true,
 			configure: func(srv *Server, req *http.Request) {
-				id, _, err := srv.sessions.create()
+				id, _, err := srv.sessions.create(authz.ServerKey())
 				require.NoError(t, err, "create session")
 				req.AddCookie(&http.Cookie{
 					Name:     sessionCookieName,

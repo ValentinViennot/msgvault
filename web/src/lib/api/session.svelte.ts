@@ -35,6 +35,16 @@ export class SessionController {
   get csrfToken(): string | undefined {
     return this.status?.csrf_token;
   }
+  get principal(): SessionStatus['principal'] | undefined {
+    return this.status?.principal;
+  }
+  // A daemon that predates login_methods only knows API-key login.
+  get loginMethods(): string[] {
+    return this.status?.login_methods ?? ['api_key'];
+  }
+  get canSignOut(): boolean {
+    return this.status?.auth_mode === 'session';
+  }
   async bootstrap(): Promise<void> {
     this.loading = true;
     this.error = undefined;
@@ -94,6 +104,7 @@ export class SessionController {
       auth_mode: 'required',
       https: this.status?.https ?? false,
       plain_http_warning: this.status?.plain_http_warning ?? true,
+      login_methods: this.loginMethods,
     };
   }
 }
