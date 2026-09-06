@@ -1869,6 +1869,16 @@ CREATE TABLE IF NOT EXISTS user_identities (
 );
 CREATE INDEX IF NOT EXISTS idx_user_identities_user ON user_identities(user_id);
 
+-- The sources a user may read. Administrators see every source and need no
+-- rows; anyone else sees exactly the sources bound here.
+CREATE TABLE IF NOT EXISTS user_sources (
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    source_id  INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, source_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_sources_source ON user_sources(source_id);
+
 -- ============================================================================
 -- ACCOUNT IDENTITIES
 -- ============================================================================

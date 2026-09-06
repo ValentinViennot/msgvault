@@ -722,3 +722,13 @@ type ListTextConversationMessagesPath struct {
 	// ID Conversation ID
 	ID int64 `json:"id"`
 }
+
+type PatchUserPath struct {
+	// ID id
+	ID int64 `json:"id"`
+}
+
+type SetUserSourcesPath struct {
+	// ID id
+	ID int64 `json:"id"`
+}

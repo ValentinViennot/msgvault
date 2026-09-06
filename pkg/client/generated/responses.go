@@ -2731,6 +2731,18 @@ type GetTextStatsResponse = TotalStatsResponse
 
 type GetTextStatsErrorResponse = ErrorResponse
 
+type ListUsersResponse = UserListResponse
+
+type ListUsersErrorResponse = ErrorResponse
+
+type PatchUserResponse = UserSummary
+
+type PatchUserErrorResponse = ErrorResponse
+
+type SetUserSourcesResponse = UserSummary
+
+type SetUserSourcesErrorResponse = ErrorResponse
+
 type HealthResponseJSON = HealthResponse
 
 type HealthErrorResponse = ErrorResponse
@@ -5173,6 +5185,27 @@ type GetTextStatsResp struct {
 	Body         []byte
 	StatusCode   int
 	JSON200      *GetTextStatsResponse
+}
+
+type ListUsersResp struct {
+	HTTPResponse *http.Response
+	Body         []byte
+	StatusCode   int
+	JSON200      *ListUsersResponse
+}
+
+type PatchUserResp struct {
+	HTTPResponse *http.Response
+	Body         []byte
+	StatusCode   int
+	JSON200      *PatchUserResponse
+}
+
+type SetUserSourcesResp struct {
+	HTTPResponse *http.Response
+	Body         []byte
+	StatusCode   int
+	JSON200      *SetUserSourcesResponse
 }
 
 type HealthResp struct {

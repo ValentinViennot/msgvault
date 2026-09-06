@@ -55,6 +55,16 @@ All notable changes to msgvault, grouped by release.
   (`MSGVAULT_AUTH_OIDC_*`, `MSGVAULT_AUTH_API_KEY_LOGIN`,
   `MSGVAULT_SERVER_TRUSTED_PROXIES`) for container deployments.
 
+- Per-user visible sources. Administrators bind sources to users
+  (`msgvault user`, Settings → Users, `GET/PUT/PATCH /api/v1/users…`), and
+  every non-administrator — a signed-in person, a key bound to a `user`, or a
+  token — sees only those sources across search, Explore, aggregates, message
+  detail, text views, documents, visual search, source status, and the MCP
+  tools. The people graph, attachment blobs, and Saved View definitions stay
+  shared by design; `POST /api/v1/query` stays administrator-only. The MCP
+  listener forwards the caller in `X-Msgvault-On-Behalf-Of`, which the daemon
+  honours from admin keys marked `on_behalf_of`. New `user_sources` table.
+
 - Web Directory workspace: browse and search promoted durable people, filter
   by contact state, category, organization, and last contact, and maintain a
   person's profile, custom fields, employment, typed relationships, tracking,

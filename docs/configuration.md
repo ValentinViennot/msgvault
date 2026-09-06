@@ -617,6 +617,8 @@ role = "viewer"                       # viewer (default), member, or admin
 | `name` | Unique label reported by `GET /api/v1/me` and in daemon logs |
 | `key` / `key_env` | The secret, inline or read from an environment variable at startup |
 | `role` | `viewer` reads and analyses the archive; `member` also curates Saved Views, people, organizations, relationships, notes, and message task links; `admin` may do everything, including sync, imports, deletions, settings, and SQL queries |
+| `user` | Address of the user the key acts as; the key sees that user's [visible sources](/docs/usage/users/). A non-admin key without a user sees none. |
+| `on_behalf_of` | `true` lets an `admin` key act for the user named in `X-Msgvault-On-Behalf-Of`; for the MCP sidecar only |
 
 Named keys work everywhere `[server].api_key` does: the `Authorization` and
 `X-API-Key` headers, the Web UI login form, and bearer authentication on

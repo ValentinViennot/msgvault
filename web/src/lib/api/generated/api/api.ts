@@ -250,6 +250,7 @@ import type {
   PatchRelationshipTypeRequest,
   PatchSavedViewPathParameters,
   PatchSavedViewRequest,
+  PatchUserPathParameters,
   PeopleResponse,
   Person,
   PersonAttributeWrite,
@@ -315,6 +316,7 @@ import type {
   SetPersonFactPinRequest,
   SetPersonTrackingPathParameters,
   SetPrimaryEmploymentPathParameters,
+  SetUserSourcesPathParameters,
   SettingsPatchRequest,
   SettingsResponse,
   SimilarSearchResponse,
@@ -347,6 +349,10 @@ import type {
   UnpublishCardDAVPersonPathParameters,
   UpdateCardDAVBookRolesPathParameters,
   UploadTokenPathParameters,
+  UserListResponse,
+  UserPatchRequest,
+  UserSourcesRequest,
+  UserSummary,
   VerifyCLIParams,
   VisualBuildRequest,
   VisualRetryRequest,
@@ -3248,6 +3254,53 @@ export const getTextStats = (
 ) => {
   return orvalFetch<TotalStatsResponse>(
     { url: `/api/v1/text/stats`, method: "GET", params },
+    options,
+  );
+};
+/**
+ * @summary List users and their visible sources
+ */
+export const listUsers = (
+  options?: SecondParameter<typeof orvalFetch<UserListResponse>>,
+) => {
+  return orvalFetch<UserListResponse>(
+    { url: `/api/v1/users`, method: "GET" },
+    options,
+  );
+};
+/**
+ * @summary Disable or re-enable a user
+ */
+export const patchUser = (
+  { id }: PatchUserPathParameters,
+  userPatchRequest: UserPatchRequest,
+  options?: SecondParameter<typeof orvalFetch<UserSummary>>,
+) => {
+  return orvalFetch<UserSummary>(
+    {
+      url: `/api/v1/users/${encodeURIComponent(String(id))}`,
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      data: userPatchRequest,
+    },
+    options,
+  );
+};
+/**
+ * @summary Replace the sources a user may read
+ */
+export const setUserSources = (
+  { id }: SetUserSourcesPathParameters,
+  userSourcesRequest: UserSourcesRequest,
+  options?: SecondParameter<typeof orvalFetch<UserSummary>>,
+) => {
+  return orvalFetch<UserSummary>(
+    {
+      url: `/api/v1/users/${encodeURIComponent(String(id))}/sources`,
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      data: userSourcesRequest,
+    },
     options,
   );
 };

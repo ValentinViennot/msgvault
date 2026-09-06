@@ -270,6 +270,7 @@ func (s *Server) registerHumaRoutes(api huma.API, apiV1 huma.API) {
 
 	registerAPIV1RawHumaJSONRoute[StatsResponse](apiV1, "getStats", http.MethodGet, "/stats", "Get archive statistics", s.handleStats)
 	registerAPIV1RawHumaJSONRoute[PrincipalInfo](apiV1, "getMe", http.MethodGet, "/me", "Get the calling principal", s.handleMe)
+	s.registerUserRoutes(apiV1)
 	s.registerImportJobRoutes(apiV1)
 	s.registerSettingsRoutes(apiV1)
 	s.registerCardDAVRoutes(apiV1)
@@ -691,6 +692,8 @@ func rawRouteParameters(operationID string) []*huma.Param {
 			limit,
 			queryStringParam("cursor", "Opaque cursor bound to this archive and the exact kind, lane, and state filters", false),
 		}
+	case "patchUser", "setUserSources":
+		return []*huma.Param{pathIntegerParam("id")}
 	case "getOperationRun":
 		return []*huma.Param{pathStringParam("id", "Opaque archive-bound operation run ID")}
 	case "getCLIStats":

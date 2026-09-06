@@ -118,6 +118,12 @@ client under the connector's advanced settings. Static keys keep working beside
 the provider for clients that cannot run an OAuth flow. Serve the listener over
 HTTPS: the provider's tokens are bearer credentials.
 
+When the daemon serves several users, the listener forwards the signed-in
+person (or the user a named key is bound to) in `X-Msgvault-On-Behalf-Of`, so
+the tools see that person's [visible sources](/docs/usage/users/). For the
+daemon to honour it, the sidecar's `[remote].api_key` must be a daemon
+`[[auth.api_keys]]` entry with `role = "admin"` and `on_behalf_of = true`.
+
 ## Available Tools
 
 The MCP server exposes the following tools to connected AI clients:

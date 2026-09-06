@@ -181,3 +181,7 @@ type PatchSettingsBody = SettingsPatchRequest
 type PutSettingsPersonEnrichmentProviderBody = PersonEnrichmentProviderUpdate
 
 type PutSettingsProviderCredentialBody = ProviderCredentialWriteRequest
+
+type PatchUserBody = UserPatchRequest
+
+type SetUserSourcesBody = UserSourcesRequest

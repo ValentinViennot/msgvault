@@ -67,13 +67,61 @@ type Principal struct {
 	Name  string
 	Email string
 	Role  Role
+	// IdentityIssuer and IdentitySubject name the identity-provider account
+	// behind a user principal, when one signed in.
+	IdentityIssuer  string
+	IdentitySubject string
+	// UserID is the users row the principal resolved to, or 0.
+	UserID int64
+	// VisibleSourceIDs confines the caller to these sources. Nil means every
+	// source (administrators); an empty, non-nil slice means none.
+	VisibleSourceIDs []int64
 }
 
 // Can reports whether the principal holds at least the required role.
 func (p Principal) Can(required Role) bool { return p.Role.AtLeast(required) }
 
 // IsZero reports whether no principal was established.
-func (p Principal) IsZero() bool { return p == Principal{} }
+func (p Principal) IsZero() bool {
+	return p.Kind == "" && p.Name == "" && p.Email == "" && p.Role == ""
+}
+
+// Scoped reports whether the principal sees only some sources.
+func (p Principal) Scoped() bool { return p.VisibleSourceIDs != nil }
+
+// Sees reports whether the principal may read the source.
+func (p Principal) Sees(sourceID int64) bool {
+	if !p.Scoped() {
+		return true
+	}
+	for _, id := range p.VisibleSourceIDs {
+		if id == sourceID {
+			return true
+		}
+	}
+	return false
+}
+
+// RestrictSources intersects a requested source set with the visible one. A
+// nil request means every visible source. The result is nil for an unscoped
+// principal with no request, and an empty slice when nothing remains.
+func (p Principal) RestrictSources(requested []int64) []int64 {
+	if !p.Scoped() {
+		return requested
+	}
+	if requested == nil {
+		out := make([]int64, len(p.VisibleSourceIDs))
+		copy(out, p.VisibleSourceIDs)
+		return out
+	}
+	out := make([]int64, 0, len(requested))
+	for _, id := range requested {
+		if p.Sees(id) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
 
 // ServerKey is the principal behind [server].api_key.
 func ServerKey() Principal {

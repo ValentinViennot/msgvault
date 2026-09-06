@@ -179,3 +179,90 @@ func scanUser(row scanner) (*User, error) {
 	}
 	return &user, nil
 }
+
+// GetUserByEmail returns the user with this case-folded address.
+func (s *Store) GetUserByEmail(ctx context.Context, email string) (*User, error) {
+	user, err := scanUser(s.db.QueryRowContext(ctx, selectUserSQL+` WHERE email = ?`, NormalizeUserEmail(email)))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrUserNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get user by email: %w", err)
+	}
+	return user, nil
+}
+
+// GetUserByIdentity returns the user bound to an identity-provider account.
+func (s *Store) GetUserByIdentity(ctx context.Context, issuer, subject string) (*User, error) {
+	user, err := scanUser(s.db.QueryRowContext(ctx,
+		selectUserSQL+` WHERE id = (SELECT user_id FROM user_identities WHERE issuer = ? AND subject = ?)`,
+		issuer, subject))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrUserNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get user by identity: %w", err)
+	}
+	return user, nil
+}
+
+// ListUserSourceIDs returns the sources bound to a user, in ID order. The
+// result is never nil, so an unbound user gets an empty, fail-closed scope.
+func (s *Store) ListUserSourceIDs(ctx context.Context, userID int64) ([]int64, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT source_id FROM user_sources WHERE user_id = ? ORDER BY source_id`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list user sources: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	ids := make([]int64, 0)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan user source: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list user sources: %w", err)
+	}
+	return ids, nil
+}
+
+// SetUserSources replaces the sources bound to a user. Unknown source IDs
+// fail the whole call so a typo cannot silently bind nothing.
+func (s *Store) SetUserSources(ctx context.Context, userID int64, sourceIDs []int64) (retErr error) {
+	if _, err := s.GetUser(ctx, userID); err != nil {
+		return err
+	}
+	tx, err := s.db.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin set user sources: %w", err)
+	}
+	defer func() {
+		if retErr != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	logged := &loggedTx{Tx: tx, rebind: s.Rebind}
+	if _, err := logged.ExecContext(ctx, `DELETE FROM user_sources WHERE user_id = ?`, userID); err != nil {
+		return fmt.Errorf("clear user sources: %w", err)
+	}
+	for _, sourceID := range sourceIDs {
+		var exists int
+		if err := logged.QueryRowContext(ctx, `SELECT COUNT(*) FROM sources WHERE id = ?`, sourceID).Scan(&exists); err != nil {
+			return fmt.Errorf("check source %d: %w", sourceID, err)
+		}
+		if exists == 0 {
+			return fmt.Errorf("%w: source %d", ErrSourceNotFound, sourceID)
+		}
+		if _, err := logged.ExecContext(ctx,
+			s.dialect.InsertOrIgnore(`INSERT OR IGNORE INTO user_sources (user_id, source_id) VALUES (?, ?)`),
+			userID, sourceID); err != nil {
+			return fmt.Errorf("bind source %d: %w", sourceID, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit user sources: %w", err)
+	}
+	return nil
+}

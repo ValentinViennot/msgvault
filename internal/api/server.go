@@ -384,9 +384,10 @@ type Server struct {
 	spaHandler  http.Handler
 	sessions    *sessionStore
 	// namedKeys are the resolved [[auth.api_keys]] credentials.
-	namedKeys []namedAPIKey
-	oidc      *oidc.Provider
-	userStore UserStore
+	namedKeys  []namedAPIKey
+	oidc       *oidc.Provider
+	userStore  UserStore
+	visibility *visibilityCache
 	// trustedProxies contains only explicitly configured direct proxy peers.
 	// Forwarded scheme/host data is ignored for every other RemoteAddr.
 	trustedProxies   []netip.Prefix
@@ -579,6 +580,7 @@ func NewServerWithOptions(opts ServerOptions) *Server {
 		sessions:                 newSessionStore(defaultSessionTTL),
 		oidc:                     opts.OIDC,
 		userStore:                opts.UserStore,
+		visibility:               newVisibilityCache(),
 		exploreState:             newExploreServerState(time.Now),
 		exploreCursorKey:         newExploreCursorKey(),
 		trustedProxies:           trustedProxyPrefixes(opts.Config.Server.TrustedProxies),
@@ -888,7 +890,7 @@ func (s *Server) queryEngineForContext(ctx context.Context) query.Engine {
 	if state == nil {
 		return nil
 	}
-	return state.engine
+	return scopeEngine(state.engine, principalFromContext(ctx))
 }
 
 func (s *Server) analyticsModeForContext(ctx context.Context) string {

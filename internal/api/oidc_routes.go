@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"html"
@@ -27,11 +26,6 @@ const (
 
 	insufficientScopeChallenge = `Bearer error="insufficient_scope", scope="` + oidc.ScopeWrite + `"`
 )
-
-// UserStore records identity-provider sign-ins.
-type UserStore interface {
-	RecordUserLogin(ctx context.Context, login store.UserLogin) (*store.User, error)
-}
 
 func (s *Server) oidcLoginEnabled() bool {
 	return s.oidc != nil && s.oidc.Config().LoginEnabled()
@@ -142,7 +136,9 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		principal.Email = user.Email
+		principal.UserID = user.ID
 	}
+	principal.IdentityIssuer, principal.IdentitySubject = identity.Issuer, identity.Subject
 	clearCookie(w, oidcLoginCookieName, sessionOIDCPathPrefix, requestUsesHTTPS(r))
 	if _, err := s.issueSession(w, r, principal); err != nil {
 		s.logger.Error("create browser session", "error", err)
@@ -174,6 +170,7 @@ func (s *Server) classifyAccessToken(r *http.Request, credential string) (reques
 		s.logger.Warn("access token without the read scope", "email", identity.Email)
 		return requestAuthentication{}, false
 	}
+	principal.IdentityIssuer, principal.IdentitySubject = identity.Issuer, identity.Subject
 	return requestAuthentication{
 		Mode:                  AuthModeToken,
 		Principal:             principal,

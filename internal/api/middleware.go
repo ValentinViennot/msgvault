@@ -263,28 +263,28 @@ func (s *Server) classifyAPIRequestDirect(r *http.Request) requestAuthentication
 	if len(authHeader) > 7 && authHeader[:7] == "Bearer " {
 		authHeader = authHeader[7:]
 	}
-	if principal, ok := s.principalForAPIKey(authHeader); ok {
-		return requestAuthentication{
+	if principal, onBehalfOf, ok := s.keyPrincipal(authHeader); ok {
+		return s.finishAuthentication(r, requestAuthentication{
 			Mode:      AuthModeAPIKey,
 			Principal: principal,
 			// Long-running CLI routes are administrative; other callers keep
 			// the remote request budget.
 			trustedForCLIDuration: principal.Role == authz.RoleAdmin,
-		}
+		}, onBehalfOf)
 	}
 
 	if auth, ok := s.classifyAccessToken(r, authHeader); ok {
-		return auth
+		return s.finishAuthentication(r, auth, false)
 	}
 
 	if cookie, err := r.Cookie(sessionCookieName); err == nil && s.sessions != nil {
 		if session, ok := s.sessions.lookup(cookie.Value); ok {
-			return requestAuthentication{
+			return s.finishAuthentication(r, requestAuthentication{
 				Mode:      AuthModeSession,
 				SessionID: cookie.Value,
 				Session:   session,
 				Principal: session.Principal,
-			}
+			}, false)
 		}
 	}
 	return requestAuthentication{Mode: AuthModeRequired}

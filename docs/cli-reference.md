@@ -1954,6 +1954,24 @@ msgvault list-accounts [flags]
 
 ---
 
+## user
+
+Manage users and the sources they may read (see [Users and Visible Sources](/docs/usage/users/)).
+
+```bash
+msgvault user list [--json]
+msgvault user sources <email> [--set 1,3 | --set none]
+msgvault user disable <email>
+msgvault user enable <email>
+```
+
+| Flag | Description |
+|---|---|
+| `--json` | `list`: output as JSON |
+| `--set` | `sources`: replace the bound sources with comma-separated source IDs, or `none` |
+
+---
+
 ## update-account
 
 Update account settings through the configured remote server or local daemon.

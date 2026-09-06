@@ -93,6 +93,18 @@ missing or invalid credentials still return `401`.
 `GET /api/session` carries the same `principal` for an authenticated browser,
 plus `login_methods`, the ways a browser may establish a session on this daemon.
 
+### Visible sources
+
+Every caller who is not an administrator sees only the sources bound to their
+user (see [Users and Visible Sources](/docs/usage/users/)). The daemon applies
+that scope below the handlers: `source_id`, `account`, `collection`, and
+Explore `source` filters are intersected with it, message and conversation
+lookups outside it answer `404`, `/text/*` views need one visible source, and
+`POST /api/v1/query` stays administrator-only. `GET /api/v1/users`,
+`PUT /api/v1/users/{id}/sources`, and `PATCH /api/v1/users/{id}` manage the
+bindings. A request from an admin key configured with `on_behalf_of` may carry
+`X-Msgvault-On-Behalf-Of: <email>` to run as that user.
+
 ### Single sign-on and access tokens
 
 With `[auth.oidc]` configured (see [Configuration](/docs/configuration/#authoidc)),

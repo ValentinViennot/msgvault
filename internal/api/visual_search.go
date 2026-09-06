@@ -116,6 +116,18 @@ func (s *Server) handleVisualSearch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if principal := s.requestPrincipal(r); principal.Scoped() {
+		switch {
+		case query.SourceID != 0 && !principal.Sees(query.SourceID):
+			writeError(w, http.StatusForbidden, "forbidden", "The source is not visible to this caller")
+			return
+		case query.SourceID == 0 && len(principal.VisibleSourceIDs) == 1:
+			query.SourceID = principal.VisibleSourceIDs[0]
+		case query.SourceID == 0:
+			writeError(w, http.StatusBadRequest, "scope_requires_source", "Visual search covers one source at a time; pass source_id")
+			return
+		}
+	}
 	if !s.resolveVisualPersonScope(w, r, &query, personID, participantID, senderPersonID, directions) {
 		return
 	}

@@ -10966,6 +10966,66 @@ type Usage struct {
 	TotalTokens int64 `json:"total_tokens"`
 }
 
+type UserListResponse struct {
+	Users []UserSummary `json:"users" validate:"required"`
+}
+
+func (u UserListResponse) Validate() error {
+	var errors runtime.ValidationErrors
+	for i, item := range u.Users {
+		if v, ok := any(item).(runtime.Validator); ok {
+			if err := v.Validate(); err != nil {
+				errors = errors.Append(fmt.Sprintf("Users[%d]", i), err)
+			}
+		}
+	}
+	if len(errors) == 0 {
+		return nil
+	}
+	return errors
+}
+
+type UserPatchRequest struct {
+	Disabled *bool `json:"disabled,omitempty"`
+}
+
+type UserSourcesRequest struct {
+	SourceIds []int64 `json:"source_ids" validate:"required"`
+}
+
+func (u UserSourcesRequest) Validate() error {
+	return runtime.ConvertValidatorError(typesValidator.Struct(u))
+}
+
+type UserSummary struct {
+	Disabled    bool            `json:"disabled"`
+	DisplayName *string         `json:"display_name,omitempty"`
+	Email       string          `json:"email" validate:"required"`
+	ID          int64           `json:"id"`
+	LastLoginAt *time.Time      `json:"last_login_at,omitempty"`
+	Role        UserSummaryRole `json:"role" validate:"required"`
+	SourceIds   []int64         `json:"source_ids" validate:"required"`
+}
+
+func (u UserSummary) Validate() error {
+	var errors runtime.ValidationErrors
+	if err := typesValidator.Var(u.Email, "required"); err != nil {
+		errors = errors.Append("Email", err)
+	}
+	if v, ok := any(u.Role).(runtime.Validator); ok {
+		if err := v.Validate(); err != nil {
+			errors = errors.Append("Role", err)
+		}
+	}
+	if err := typesValidator.Var(u.SourceIds, "required"); err != nil {
+		errors = errors.Append("SourceIds", err)
+	}
+	if len(errors) == 0 {
+		return nil
+	}
+	return errors
+}
+
 type VCardIdentity struct {
 	Altid    *string  `json:"altid,omitempty"`
 	Group    *string  `json:"group,omitempty"`
