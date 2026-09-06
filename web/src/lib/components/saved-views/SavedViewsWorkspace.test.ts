@@ -118,6 +118,33 @@ describe('SavedViewsWorkspace', () => {
     }));
   });
 
+  it.each(['mailing_list', 'identity'])('opens views filtered by %s', async (dimension) => {
+    const onOpen = vi.fn();
+    const view = savedView({
+      canonical_state: {
+        query: 'invoice', search_mode: 'full_text',
+        filters: [{ field: dimension, operator: 'in', values: ['list-7'] }],
+        grouping: [], presentation: 'table',
+        sort: [{ field: 'occurred_at', direction: 'desc' }],
+        columns: ['kind', 'title'], inspector_pinned: false
+      }
+    });
+    render(SavedViewsWorkspace, {
+      client: createAPIClient(vi.fn<typeof fetch>(async () => Response.json({ saved_views: [view] }))),
+      currentState, onOpen
+    });
+
+    const openButton = (await screen.findByRole('button', { name: 'Open Invoices' })) as HTMLButtonElement;
+    expect(openButton.disabled).toBe(false);
+    expect(screen.queryByRole('alert')).toBeNull();
+
+    await fireEvent.click(openButton);
+
+    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({
+      filters: [{ dimension, values: ['list-7'] }]
+    }));
+  });
+
   it('keeps compatible-schema views with unsupported fields or operators visibly blocked', async () => {
     render(SavedViewsWorkspace, {
       client: createAPIClient(vi.fn<typeof fetch>(async () => Response.json({ saved_views: [savedView({

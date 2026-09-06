@@ -32,6 +32,7 @@ import type {
   SourceIdentitiesResponse as GeneratedSourceIdentitiesResponse,
   SourceIdentityResponse as GeneratedSourceIdentityResponse,
 } from '../api/generated/models';
+import { ExploreFilterDimension } from '../api/generated/models';
 
 export type EntryRow = GeneratedEntryRow;
 export type ExploreCacheUnavailable = GeneratedExploreCacheUnavailableResponse;
@@ -180,6 +181,19 @@ export type ExploreSelection = ExplicitExploreSelection | AllMatchingExploreSele
 /** Rows archived before typed message kinds existed are email records. */
 export function isEmailMessageType(messageType: string): boolean {
   return messageType === '' || messageType === 'email';
+}
+
+/**
+ * The one filter-dimension vocabulary, derived from the generated API enum so
+ * URL validation, the Explore workspace, and Saved Views cannot drift from the
+ * server contract or from each other.
+ */
+export const FILTER_DIMENSIONS: ReadonlySet<ExploreFilterDimension> = new Set(
+  Object.values(ExploreFilterDimension)
+);
+
+export function isFilterDimension(value: string): value is ExploreFilterDimension {
+  return FILTER_DIMENSIONS.has(value as ExploreFilterDimension);
 }
 
 export function isValidSourceID(value: string | undefined): value is string {

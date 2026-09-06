@@ -20,7 +20,7 @@ import type {
   RelationshipReviewState,
   RelationshipFacet
 } from './models';
-import { DEFAULT_EXPLORE_COLUMNS, isValidSourceID } from './models';
+import { DEFAULT_EXPLORE_COLUMNS, isFilterDimension, isValidSourceID } from './models';
 import { isGroupingDimension, validateGroupingChain } from '../grouping/catalog';
 import { hasValidSearchAuthority, predicateFingerprint } from './selection';
 import { parseAttachmentSelection } from './attachment-authority';
@@ -33,17 +33,6 @@ import {
 } from '../search/modes';
 
 const STATE_PARAMETER = 'explore';
-const FILTER_DIMENSIONS = new Set([
-  'source',
-  'identity',
-  'participant',
-  'domain',
-  'mailing_list',
-  'message_type',
-  'after',
-  'before',
-  'deletion'
-]);
 const COLUMNS = new Set(['kind', 'people', 'title', 'excerpt', 'time', 'attachments', 'size']);
 const TRANSIENT_HISTORY_FIELDS = [
   'columns',
@@ -163,7 +152,7 @@ function isFilter(value: unknown): value is ExploreFilter {
   return (
     isRecord(value) &&
     typeof value.dimension === 'string' &&
-    FILTER_DIMENSIONS.has(value.dimension) &&
+    isFilterDimension(value.dimension) &&
     Array.isArray(value.values) &&
     value.values.every((item) => typeof item === 'string')
   );

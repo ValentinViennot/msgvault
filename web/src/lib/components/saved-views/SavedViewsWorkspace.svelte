@@ -12,11 +12,21 @@
     SavedView as GeneratedSavedView,
     SavedViewStateEnvelope as GeneratedSavedViewStateEnvelope,
   } from '../../api/generated/models';
-  import { DEFAULT_EXPLORE_COLUMNS, type ExploreColumn, type ExploreURLState } from '../../explore/models';
+  import {
+    DEFAULT_EXPLORE_COLUMNS,
+    isFilterDimension,
+    type ExploreColumn,
+    type ExploreURLState,
+  } from '../../explore/models';
   import { isGroupingDimension } from '../../grouping/catalog';
   type SavedView = GeneratedSavedView;
   type CanonicalState = GeneratedSavedViewStateEnvelope;
   const CURRENT_SCHEMA_VERSION = 1;
+  /** Persisted v1 field names that predate the current filter dimension vocabulary. */
+  const FILTER_ALIASES = new Map<string, ExploreURLState['filters'][number]['dimension']>([
+    ['source_id', 'source'],
+    ['participant_id', 'participant'],
+  ]);
   let {
     client,
     currentState,
@@ -156,16 +166,12 @@
     const incompatibility = incompatibilityFor(view);
     if (incompatibility) return;
     const saved = view.canonical_state;
-    const filters = (saved.filters ?? []).map((filter) => {
-      const aliases: Record<string, ExploreURLState['filters'][number]['dimension']> = {
-        source_id: 'source',
-        participant_id: 'participant',
-      };
-      return {
-        dimension: aliases[filter.field] ?? (filter.field as ExploreURLState['filters'][number]['dimension']),
-        values: [...filter.values],
-      };
-    });
+    const filters = (saved.filters ?? []).map((filter) => ({
+      dimension:
+        FILTER_ALIASES.get(filter.field) ??
+        (filter.field as ExploreURLState['filters'][number]['dimension']),
+      values: [...filter.values],
+    }));
     onOpen({
       workspace: 'everything',
       query: saved.query ?? '',
@@ -186,18 +192,8 @@
       return `This view uses schema version ${view.schema_version}. Automatic migration is not supported; remove it and save the current view again.`;
     }
     const saved = view.canonical_state;
-    const filterDimensions = new Set([
-      'source',
-      'participant',
-      'domain',
-      'message_type',
-      'after',
-      'before',
-      'deletion',
-    ]);
-    const filterAliases = new Set(['source_id', 'participant_id']);
     for (const filter of saved.filters ?? []) {
-      if (!filterDimensions.has(filter.field) && !filterAliases.has(filter.field)) {
+      if (!isFilterDimension(filter.field) && !FILTER_ALIASES.has(filter.field)) {
         return `This view has an unsupported v1 filter field: ${filter.field}.`;
       }
       if (filter.operator !== 'eq' && filter.operator !== 'in') {
