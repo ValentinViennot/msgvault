@@ -45,13 +45,13 @@ func TestProtectedResourceMetadata(t *testing.T) {
 		require.NoError(json.Unmarshal(recorder.Body.Bytes(), &document))
 		assert.Equal(mcpTestResource, document["resource"])
 		assert.Equal([]any{idp.Issuer()}, document["authorization_servers"])
-		assert.Equal([]any{oidc.ScopeRead, oidc.ScopeWrite}, document["scopes_supported"])
+		assert.Equal([]any{"openid", "profile", "email", "groups", oidc.ScopeRead, oidc.ScopeWrite}, document["scopes_supported"])
 	}
 
 	unauthenticated := httptest.NewRecorder()
 	handler.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodPost, "/mcp", nil))
 	assert.Equal(http.StatusUnauthorized, unauthenticated.Code)
-	assert.Equal(`Bearer resource_metadata="https://vault-mcp.example/.well-known/oauth-protected-resource/mcp", scope="msgvault:read"`,
+	assert.Equal(`Bearer resource_metadata="https://vault-mcp.example/.well-known/oauth-protected-resource/mcp", scope="openid profile email groups msgvault:read msgvault:write"`,
 		unauthenticated.Header().Get("WWW-Authenticate"))
 
 	// Without a provider the listener keeps the bare challenge and no metadata.
