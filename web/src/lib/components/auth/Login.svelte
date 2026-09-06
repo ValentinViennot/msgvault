@@ -10,13 +10,32 @@
     event.preventDefault();
     await session.login(apiKey);
   }
+
+  function signInWithProvider() {
+    if (session.oidc) window.location.assign(session.oidc.start_url);
+  }
 </script>
 
 <main class="login" aria-label="Authentication">
-  {#if session.loginMethods.includes('api_key')}
-    <form aria-label="Log in" onsubmit={submit}>
+  {#if session.oidc}
+    <section class="provider" aria-label="Single sign-on">
       <p class="eyebrow">msgvault</p>
       <h1>Log in</h1>
+      <Button
+        tone="info"
+        surface="solid"
+        disabled={session.loading}
+        label={`Sign in with ${session.oidc.provider_name}`}
+        onclick={signInWithProvider}
+      />
+    </section>
+  {/if}
+  {#if session.loginMethods.includes('api_key')}
+    <form aria-label="Log in" onsubmit={submit}>
+      {#if !session.oidc}
+        <p class="eyebrow">msgvault</p>
+        <h1>Log in</h1>
+      {/if}
       <p>Enter the API key configured for this daemon.</p>
 
       <label for="api-key">API key</label>
@@ -42,7 +61,7 @@
         label={session.loading ? 'Logging in…' : 'Log in'}
       />
     </form>
-  {:else}
+  {:else if !session.oidc}
     <section aria-label="Log in">
       <p class="eyebrow">msgvault</p>
       <h1>Log in</h1>

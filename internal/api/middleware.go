@@ -230,7 +230,10 @@ type requestAuthentication struct {
 	Session   browserSession
 	// Principal is the authenticated caller. It is zero only for
 	// AuthModeRequired.
-	Principal             authz.Principal
+	Principal authz.Principal
+	// WriteDenied is set for an access token that lacks the write scope:
+	// the caller's role may allow a mutation, the token does not.
+	WriteDenied           bool
 	trustedForCLIDuration bool
 }
 
@@ -268,6 +271,10 @@ func (s *Server) classifyAPIRequestDirect(r *http.Request) requestAuthentication
 			// the remote request budget.
 			trustedForCLIDuration: principal.Role == authz.RoleAdmin,
 		}
+	}
+
+	if auth, ok := s.classifyAccessToken(r, authHeader); ok {
+		return auth
 	}
 
 	if cookie, err := r.Cookie(sessionCookieName); err == nil && s.sessions != nil {

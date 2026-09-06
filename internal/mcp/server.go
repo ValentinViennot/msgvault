@@ -5,16 +5,19 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"go.kenn.io/msgvault/internal/authn/oidc"
 	"go.kenn.io/msgvault/internal/authz"
 	"go.kenn.io/msgvault/internal/peoplebrowser"
 	"go.kenn.io/msgvault/internal/query"
@@ -97,6 +100,10 @@ type HTTPOptions struct {
 	// Keys are the named [[auth.api_keys]] credentials with their roles.
 	Keys        []NamedKey
 	AllowWrites bool
+	// OIDC, when configured with a resource, makes the listener an OAuth
+	// resource server: it validates the provider's access tokens and
+	// publishes RFC 9728 protected-resource metadata.
+	OIDC *oidc.Provider
 }
 
 // NamedKey is one named bearer credential the HTTP listener accepts.
@@ -305,7 +312,8 @@ func newMCPHTTPServerWithPolicy(
 	}
 	httpServer := sdkmcp.NewStreamableHTTPHandler(
 		func(r *http.Request) *sdkmcp.Server {
-			return newMCPServerWithPolicy(opts, httpOpts.AllowWrites, principalFromContext(r.Context()), policy)
+			grant := grantFromContext(r.Context())
+			return newMCPServerWithPolicy(opts, httpOpts.AllowWrites && grant.writeScope, grant.principal, policy)
 		},
 		&sdkmcp.StreamableHTTPOptions{
 			Stateless:                    true,
@@ -321,9 +329,14 @@ func newMCPHTTPServerWithPolicy(
 	)
 	mux := http.NewServeMux()
 	protected := http.NewCrossOriginProtection().Handler(
-		bearerAuthHandler(httpOpts.APIKey, httpOpts.Keys, httpServer),
+		bearerAuthHandler(httpOpts.APIKey, httpOpts.Keys, httpOpts.OIDC, httpServer),
 	)
 	mux.Handle("/mcp", noStoreHandler(protected))
+	if httpOpts.OIDC != nil && httpOpts.OIDC.Config().BearerEnabled() {
+		metadata := protectedResourceMetadataHandler(httpOpts.OIDC)
+		mux.Handle(protectedResourceMetadataPath, metadata)
+		mux.Handle(protectedResourceMetadataPath+"/", metadata)
+	}
 	stdlibServer.Handler = mux
 	return stdlibServer
 }
@@ -353,16 +366,29 @@ func noStoreHandler(next http.Handler) http.Handler {
 	})
 }
 
-type principalContextKey struct{}
+type grantContextKey struct{}
+
+// callerGrant is what bearerAuthHandler established for one request: who is
+// calling and whether their credential permits writes at all. API keys and
+// the local operator carry no scopes, so writes are left to the role.
+type callerGrant struct {
+	principal  authz.Principal
+	writeScope bool
+}
+
+// grantFromContext returns the caller established by bearerAuthHandler. A
+// listener without credentials, and the stdio transport, serve the local
+// operator, who is an administrator.
+func grantFromContext(ctx context.Context) callerGrant {
+	if grant, ok := ctx.Value(grantContextKey{}).(callerGrant); ok {
+		return grant
+	}
+	return callerGrant{principal: authz.ServerKey(), writeScope: true}
+}
 
 // principalFromContext returns the caller established by bearerAuthHandler.
-// A listener without credentials, and the stdio transport, serve the local
-// operator, who is an administrator.
 func principalFromContext(ctx context.Context) authz.Principal {
-	if principal, ok := ctx.Value(principalContextKey{}).(authz.Principal); ok {
-		return principal
-	}
-	return authz.ServerKey()
+	return grantFromContext(ctx).principal
 }
 
 type bearerCredential struct {
@@ -370,10 +396,60 @@ type bearerCredential struct {
 	principal authz.Principal
 }
 
-// bearerAuthHandler resolves the Authorization header to a principal. The
+const protectedResourceMetadataPath = "/.well-known/oauth-protected-resource"
+
+// resourceMetadataURL derives the RFC 9728 metadata location from the
+// resource identifier: the well-known path at the resource's origin, with the
+// resource's own path appended when it has one.
+func resourceMetadataURL(resource string) string {
+	parsed, err := url.Parse(resource)
+	if err != nil || parsed.Host == "" {
+		return ""
+	}
+	path := strings.TrimSuffix(parsed.Path, "/")
+	return parsed.Scheme + "://" + parsed.Host + protectedResourceMetadataPath + path
+}
+
+// bearerChallenge is the WWW-Authenticate value for an unauthenticated
+// request. With an identity provider it points MCP clients at the metadata
+// they need to obtain a token.
+func bearerChallenge(provider *oidc.Provider) string {
+	if provider == nil || !provider.Config().BearerEnabled() {
+		return "Bearer"
+	}
+	return `Bearer resource_metadata="` + resourceMetadataURL(provider.Config().Resource) + `", scope="` + oidc.ScopeRead + `"`
+}
+
+// protectedResourceMetadataHandler serves the RFC 9728 document that tells
+// MCP clients which authorization server issues tokens for this listener.
+func protectedResourceMetadataHandler(provider *oidc.Provider) http.Handler {
+	cfg := provider.Config()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "public, max-age=300")
+		// The document is public and clients may fetch it from a browser.
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"resource":                 cfg.Resource,
+			"resource_name":            "msgvault",
+			"authorization_servers":    []string{cfg.Issuer},
+			"scopes_supported":         []string{oidc.ScopeRead, oidc.ScopeWrite},
+			"bearer_methods_supported": []string{"header"},
+		})
+	})
+}
+
+// bearerAuthHandler resolves the Authorization header to a caller. The
 // administrator key and every named key are compared in constant time; a
-// request that matches none is refused before it reaches the transport.
-func bearerAuthHandler(apiKey string, keys []NamedKey, next http.Handler) http.Handler {
+// JWT-shaped credential that matches no key is validated with the identity
+// provider when one is configured. A request that matches nothing is refused
+// before it reaches the transport.
+func bearerAuthHandler(apiKey string, keys []NamedKey, provider *oidc.Provider, next http.Handler) http.Handler {
 	credentials := make([]bearerCredential, 0, len(keys)+1)
 	if apiKey != "" {
 		credentials = append(credentials, bearerCredential{
@@ -390,13 +466,15 @@ func bearerAuthHandler(apiKey string, keys []NamedKey, next http.Handler) http.H
 			principal: authz.Principal{Kind: authz.PrincipalAPIKey, Name: key.Name, Role: key.Role},
 		})
 	}
-	if len(credentials) == 0 {
+	tokensEnabled := provider != nil && provider.Config().BearerEnabled()
+	if len(credentials) == 0 && !tokensEnabled {
 		return next
 	}
+	challenge := bearerChallenge(provider)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		values := r.Header.Values("Authorization")
-		var principal authz.Principal
+		var grant callerGrant
 		authorized := false
 		if len(values) == 1 {
 			scheme, credential, found := strings.Cut(values[0], " ")
@@ -404,20 +482,39 @@ func bearerAuthHandler(apiKey string, keys []NamedKey, next http.Handler) http.H
 				supplied := sha256.Sum256([]byte(credential))
 				for _, candidate := range credentials {
 					if subtle.ConstantTimeCompare(candidate.digest[:], supplied[:]) == 1 {
-						principal = candidate.principal
+						grant = callerGrant{principal: candidate.principal, writeScope: true}
 						authorized = true
 						break
+					}
+				}
+				if !authorized && tokensEnabled && strings.Count(credential, ".") == 2 {
+					identity, err := provider.VerifyAccessToken(r.Context(), credential)
+					if err == nil {
+						principal, ok := provider.Principal(identity)
+						switch {
+						case !ok:
+							slog.Warn("MCP access token without a role", "email", identity.Email, "subject", identity.Subject)
+						case !identity.HasScope(oidc.ScopeRead):
+							w.Header().Set("WWW-Authenticate", `Bearer error="insufficient_scope", scope="`+oidc.ScopeRead+`", resource_metadata="`+resourceMetadataURL(provider.Config().Resource)+`"`)
+							http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+							return
+						default:
+							grant = callerGrant{principal: principal, writeScope: identity.HasScope(oidc.ScopeWrite)}
+							authorized = true
+						}
+					} else {
+						slog.Debug("MCP access token rejected", "error", err)
 					}
 				}
 			}
 		}
 
 		if !authorized {
-			w.Header().Set("WWW-Authenticate", "Bearer")
+			w.Header().Set("WWW-Authenticate", challenge)
 			http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
 		}
-		ctx := context.WithValue(r.Context(), principalContextKey{}, principal)
+		ctx := context.WithValue(r.Context(), grantContextKey{}, grant)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

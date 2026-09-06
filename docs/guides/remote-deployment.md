@@ -251,6 +251,32 @@ on a private network is supported as an explicit tradeoff and produces a UI
 warning because the cookie is not encrypted in transit. See [Web UI](/docs/web-ui/)
 for the complete session and proxy model.
 
+## Single Sign-On Behind HTTPS
+
+For a daemon reached over the public internet, terminate TLS at a reverse
+proxy or tunnel, list that proxy in `[server] trusted_proxies`, and configure
+`[auth.oidc]` so people sign in through your identity provider instead of
+sharing the API key. In a container the whole section can come from the
+environment:
+
+```yaml
+environment:
+  MSGVAULT_SERVER_TRUSTED_PROXIES: 172.19.0.0/16
+  MSGVAULT_AUTH_OIDC_ISSUER: https://id.example.com
+  MSGVAULT_AUTH_OIDC_CLIENT_ID: msgvault
+  MSGVAULT_AUTH_OIDC_CLIENT_SECRET: ${MSGVAULT_OIDC_CLIENT_SECRET:?}
+  MSGVAULT_AUTH_OIDC_PUBLIC_URL: https://vault.example.com
+  MSGVAULT_AUTH_OIDC_RESOURCE: https://vault.example.com
+  MSGVAULT_AUTH_OIDC_ADMIN_GROUPS: msgvault_admin
+  MSGVAULT_AUTH_OIDC_VIEWER_GROUPS: msgvault_viewer
+  MSGVAULT_AUTH_API_KEY_LOGIN: "false"
+```
+
+Give the `msgvault mcp --http` sidecar the same issuer and groups with
+`MSGVAULT_AUTH_OIDC_RESOURCE` set to its public `/mcp` URL, and MCP clients
+sign in through the provider too. See [Configuration](/docs/configuration/#authoidc)
+and [MCP Server](/docs/usage/chat/#oauth-sign-in-for-mcp-clients).
+
 ## Using the Local CLI Against Remote
 
 When your local machine config has:

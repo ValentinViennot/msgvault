@@ -43,3 +43,25 @@ export const loginSession = (
     options,
   );
 };
+/**
+ * @summary Complete an identity-provider login and create a browser session
+ */
+export const completeOIDCLogin = (
+  options?: SecondParameter<typeof orvalFetch<void>>,
+) => {
+  return orvalFetch<void>(
+    { url: `/api/session/oidc/callback`, method: "GET" },
+    options,
+  );
+};
+/**
+ * @summary Redirect the browser to the identity provider
+ */
+export const startOIDCLogin = (
+  options?: SecondParameter<typeof orvalFetch<void>>,
+) => {
+  return orvalFetch<void>(
+    { url: `/api/session/oidc/start`, method: "GET" },
+    options,
+  );
+};

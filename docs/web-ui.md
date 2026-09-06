@@ -67,7 +67,11 @@ request is not loopback-trusted, `/` still loads the public shell and the UI ask
 for the key. A successful login creates an expiring, in-memory browser session that carries
 the key's role; named `[[auth.api_keys]]` entries log in the same way, Settings
 shows the signed-in caller with a sign-out control, and `[auth]
-api_key_login = false` hides the form.
+api_key_login = false` hides the form. With `[auth.oidc]` configured, the login
+page offers "Sign in with <provider>": the daemon redirects to the identity
+provider, verifies the returned identity, maps its groups to a role, and creates
+the same kind of session. Deploy single sign-on behind HTTPS and list the
+TLS-terminating proxy in `trusted_proxies` so the session cookie is `Secure`.
 Daemon restarts, logout, expiry, and API-key activation invalidate sessions.
 Existing bearer-key API clients are unchanged.
 

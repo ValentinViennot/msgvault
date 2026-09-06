@@ -4174,7 +4174,7 @@ func TestBearerAuthHandler(t *testing.T) {
 					called = true
 					w.WriteHeader(http.StatusNoContent)
 				})
-				handler := bearerAuthHandler(apiKey, nil, next)
+				handler := bearerAuthHandler(apiKey, nil, nil, next)
 				req := httptest.NewRequest(method, "/mcp", nil)
 				req.Header.Set("Mcp-Session-Id", "test-session")
 				if tt.addAuth != nil {
@@ -4206,7 +4206,7 @@ func TestBearerAuthHandlerRejectsMalformedCredentials(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			called := false
-			handler := bearerAuthHandler("test-api-key", nil, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			handler := bearerAuthHandler("test-api-key", nil, nil, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 				called = true
 			}))
 			req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
@@ -4227,7 +4227,7 @@ func TestBearerAuthHandlerRejectsMalformedCredentials(t *testing.T) {
 func TestBearerAuthHandlerCompatibilityAndSchemeCase(t *testing.T) {
 	t.Run("empty key passes through", func(t *testing.T) {
 		called := false
-		handler := bearerAuthHandler("", nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		handler := bearerAuthHandler("", nil, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			called = true
 			w.WriteHeader(http.StatusAccepted)
 		}))
@@ -4241,7 +4241,7 @@ func TestBearerAuthHandlerCompatibilityAndSchemeCase(t *testing.T) {
 
 	t.Run("bearer scheme is case insensitive", func(t *testing.T) {
 		called := false
-		handler := bearerAuthHandler("test-api-key", nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		handler := bearerAuthHandler("test-api-key", nil, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			called = true
 			w.WriteHeader(http.StatusAccepted)
 		}))

@@ -47,6 +47,14 @@ type ClientInterface interface {
 	LoginSession(ctx context.Context, options *LoginSessionRequestOptions, reqEditors ...runtime.RequestEditorFn) (*LoginSessionResponse, error)
 	LoginSessionWithResponse(ctx context.Context, options *LoginSessionRequestOptions, reqEditors ...runtime.RequestEditorFn) (*LoginSessionResp, error)
 
+	// CompleteOIDCLogin Complete an identity-provider login and create a browser session
+	CompleteOIDCLogin(ctx context.Context, reqEditors ...runtime.RequestEditorFn) (*struct{}, error)
+	CompleteOIDCLoginWithResponse(ctx context.Context, reqEditors ...runtime.RequestEditorFn) (*CompleteOIDCLoginResp, error)
+
+	// StartOIDCLogin Redirect the browser to the identity provider
+	StartOIDCLogin(ctx context.Context, reqEditors ...runtime.RequestEditorFn) (*struct{}, error)
+	StartOIDCLoginWithResponse(ctx context.Context, reqEditors ...runtime.RequestEditorFn) (*StartOIDCLoginResp, error)
+
 	// ListAccounts List scheduler-configured accounts (with sync schedules); use /cli/accounts for all archived sources
 	ListAccounts(ctx context.Context, reqEditors ...runtime.RequestEditorFn) (*ListAccountsResponse, error)
 	ListAccountsWithResponse(ctx context.Context, reqEditors ...runtime.RequestEditorFn) (*ListAccountsResp, error)
@@ -1189,6 +1197,62 @@ func (c *Client) LoginSession(ctx context.Context, options *LoginSessionRequestO
 	}
 
 	resp, err := c.apiClient.ExecuteRequest(ctx, req, "/api/session/login")
+	if err != nil {
+		return nil, fmt.Errorf("error executing request: %w", err)
+	}
+	return responseParser(ctx, resp)
+}
+
+// CompleteOIDCLogin Complete an identity-provider login and create a browser session
+func (c *Client) CompleteOIDCLogin(ctx context.Context, reqEditors ...runtime.RequestEditorFn) (*struct{}, error) {
+	var err error
+	reqParams := runtime.RequestOptionsParameters{
+		RequestURL: c.apiClient.GetBaseURL() + "/api/session/oidc/callback",
+		Method:     "GET",
+	}
+
+	req, err := c.apiClient.CreateRequest(ctx, reqParams, reqEditors...)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	responseParser := func(ctx context.Context, resp *runtime.Response) (*struct{}, error) {
+		if resp.StatusCode != 204 {
+			return nil, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode),
+				runtime.WithStatusCode(resp.StatusCode))
+		}
+		return nil, nil
+	}
+
+	resp, err := c.apiClient.ExecuteRequest(ctx, req, "/api/session/oidc/callback")
+	if err != nil {
+		return nil, fmt.Errorf("error executing request: %w", err)
+	}
+	return responseParser(ctx, resp)
+}
+
+// StartOIDCLogin Redirect the browser to the identity provider
+func (c *Client) StartOIDCLogin(ctx context.Context, reqEditors ...runtime.RequestEditorFn) (*struct{}, error) {
+	var err error
+	reqParams := runtime.RequestOptionsParameters{
+		RequestURL: c.apiClient.GetBaseURL() + "/api/session/oidc/start",
+		Method:     "GET",
+	}
+
+	req, err := c.apiClient.CreateRequest(ctx, reqParams, reqEditors...)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	responseParser := func(ctx context.Context, resp *runtime.Response) (*struct{}, error) {
+		if resp.StatusCode != 204 {
+			return nil, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode),
+				runtime.WithStatusCode(resp.StatusCode))
+		}
+		return nil, nil
+	}
+
+	resp, err := c.apiClient.ExecuteRequest(ctx, req, "/api/session/oidc/start")
 	if err != nil {
 		return nil, fmt.Errorf("error executing request: %w", err)
 	}

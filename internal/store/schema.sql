@@ -1840,6 +1840,36 @@ CREATE TABLE IF NOT EXISTS saved_views (
 );
 
 -- ============================================================================
+-- USERS
+-- ============================================================================
+-- People who may sign in through an identity provider. A row is created on
+-- first sign-in and carries the role derived at the most recent one; the
+-- daemon's authorization decision still comes from the live claims.
+CREATE TABLE IF NOT EXISTS users (
+    id            INTEGER PRIMARY KEY,
+    email         TEXT NOT NULL UNIQUE,   -- case-folded
+    display_name  TEXT NOT NULL DEFAULT '',
+    role          TEXT NOT NULL DEFAULT 'viewer',
+    disabled      INTEGER NOT NULL DEFAULT 0,
+    created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_login_at DATETIME
+);
+
+-- One row per (issuer, subject) an identity provider asserted for a user, so
+-- a person keeps one account when their address changes.
+CREATE TABLE IF NOT EXISTS user_identities (
+    id            INTEGER PRIMARY KEY,
+    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    issuer        TEXT NOT NULL,
+    subject       TEXT NOT NULL,
+    created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_login_at DATETIME,
+    UNIQUE(issuer, subject)
+);
+CREATE INDEX IF NOT EXISTS idx_user_identities_user ON user_identities(user_id);
+
+-- ============================================================================
 -- ACCOUNT IDENTITIES
 -- ============================================================================
 

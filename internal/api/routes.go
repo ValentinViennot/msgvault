@@ -14,6 +14,8 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"go.kenn.io/kit/daemon"
+	"go.kenn.io/msgvault/internal/authn/oidc"
+	"go.kenn.io/msgvault/internal/authz"
 	"go.kenn.io/msgvault/internal/deletion"
 	"go.kenn.io/msgvault/internal/query"
 	"go.kenn.io/msgvault/internal/vector/visual"
@@ -200,6 +202,12 @@ func (s *Server) humaAuthMiddleware(ctx huma.Context, next func(huma.Context)) {
 		s.logForbiddenAPIRequest(req, auth.Principal, required)
 		writeHumaError(ctx, http.StatusForbidden, "forbidden",
 			fmt.Sprintf("This operation requires the %s role", required))
+		return
+	}
+	if auth.WriteDenied && required != authz.RoleViewer {
+		ctx.SetHeader("WWW-Authenticate", insufficientScopeChallenge)
+		writeHumaError(ctx, http.StatusForbidden, "insufficient_scope",
+			"The access token does not carry the "+oidc.ScopeWrite+" scope")
 		return
 	}
 	next(ctx)

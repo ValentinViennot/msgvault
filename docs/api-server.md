@@ -93,6 +93,21 @@ missing or invalid credentials still return `401`.
 `GET /api/session` carries the same `principal` for an authenticated browser,
 plus `login_methods`, the ways a browser may establish a session on this daemon.
 
+### Single sign-on and access tokens
+
+With `[auth.oidc]` configured (see [Configuration](/docs/configuration/#authoidc)),
+`GET /api/session/oidc/start` redirects the browser to the identity provider
+and `GET /api/session/oidc/callback` completes the sign-in with a browser
+session whose role comes from the provider's groups. The bootstrap reports
+`oidc` in `login_methods` and the provider name and start URL under `oidc`.
+
+Access tokens issued by the same provider for the daemon's `resource` are
+accepted as `Authorization: Bearer <token>` (`auth_mode: "token"`). The
+token's audience, signature, issuer, and expiry are verified; it must carry
+`msgvault:read`, and a mutation additionally requires `msgvault:write`,
+otherwise the daemon answers `403` with `error: "insufficient_scope"` and a
+`WWW-Authenticate` challenge naming the missing scope.
+
 ## API Endpoints
 
 ### Curated person network {#get-apiv1peopleidnetwork}

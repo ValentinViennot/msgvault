@@ -5060,6 +5060,15 @@ func (n NetworkNode) Validate() error {
 	return errors
 }
 
+type OIDCLoginInfo struct {
+	ProviderName string `json:"provider_name" validate:"required"`
+	StartURL     string `json:"start_url" validate:"required"`
+}
+
+func (o OIDCLoginInfo) Validate() error {
+	return runtime.ConvertValidatorError(typesValidator.Struct(o))
+}
+
 type OperationHealth struct {
 	Busy      bool       `json:"busy"`
 	Label     *string    `json:"label,omitempty"`
@@ -9640,8 +9649,9 @@ type SessionStatus struct {
 	CsrfToken *string               `json:"csrf_token,omitempty"`
 	HTTPS     bool                  `json:"https"`
 
-	// LoginMethods Available login methods: api_key
+	// LoginMethods Available login methods: api_key, oidc
 	LoginMethods     []string       `json:"login_methods" validate:"required"`
+	Oidc             *OIDCLoginInfo `json:"oidc,omitempty"`
 	PlainHTTPWarning bool           `json:"plain_http_warning"`
 	Principal        *PrincipalInfo `json:"principal,omitempty"`
 }
@@ -9655,6 +9665,13 @@ func (s SessionStatus) Validate() error {
 	}
 	if err := typesValidator.Var(s.LoginMethods, "required"); err != nil {
 		errors = errors.Append("LoginMethods", err)
+	}
+	if s.Oidc != nil {
+		if v, ok := any(s.Oidc).(runtime.Validator); ok {
+			if err := v.Validate(); err != nil {
+				errors = errors.Append("Oidc", err)
+			}
+		}
 	}
 	if s.Principal != nil {
 		if v, ok := any(s.Principal).(runtime.Validator); ok {

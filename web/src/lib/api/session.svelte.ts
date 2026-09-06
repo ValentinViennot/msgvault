@@ -45,6 +45,9 @@ export class SessionController {
   get canSignOut(): boolean {
     return this.status?.auth_mode === 'session';
   }
+  get oidc(): SessionStatus['oidc'] | undefined {
+    return this.status?.oidc;
+  }
   async bootstrap(): Promise<void> {
     this.loading = true;
     this.error = undefined;
@@ -105,6 +108,7 @@ export class SessionController {
       https: this.status?.https ?? false,
       plain_http_warning: this.status?.plain_http_warning ?? true,
       login_methods: this.loginMethods,
+      ...(this.status?.oidc ? { oidc: this.status.oidc } : {}),
     };
   }
 }

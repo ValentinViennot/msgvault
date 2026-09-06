@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -35,6 +36,7 @@ type User struct {
 // Server is the running fake provider.
 type Server struct {
 	*httptest.Server
+
 	Key      *rsa.PrivateKey
 	ClientID string
 	// ClientSecret, when set, must be presented at the token endpoint.
@@ -171,17 +173,21 @@ func (s *Server) sign(t *testing.T, claims map[string]any) string {
 func (s *Server) signRaw(claims map[string]any) (string, error) {
 	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: s.Key}, (&jose.SignerOptions{}).WithHeader("kid", "test-key"))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("new signer: %w", err)
 	}
 	payload, err := json.Marshal(claims)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("marshal claims: %w", err)
 	}
 	object, err := signer.Sign(payload)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("sign claims: %w", err)
 	}
-	return object.CompactSerialize()
+	serialized, err := object.CompactSerialize()
+	if err != nil {
+		return "", fmt.Errorf("serialize token: %w", err)
+	}
+	return serialized, nil
 }
 
 func (s *Server) handleDiscovery(w http.ResponseWriter, _ *http.Request) {
@@ -239,7 +245,9 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	values.Set("code", code)
 	values.Set("state", query.Get("state"))
 	redirect.RawQuery = values.Encode()
-	http.Redirect(w, r, redirect.String(), http.StatusFound)
+	// The fake provider trusts the redirect_uri it was given: the test that
+	// registered the client is the only caller.
+	http.Redirect(w, r, redirect.String(), http.StatusFound) //nolint:gosec // in-process test provider
 }
 
 func (s *Server) handleToken(w http.ResponseWriter, r *http.Request) {
@@ -343,9 +351,14 @@ func (s *Server) handleUserInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
+	body, err := json.Marshal(value)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(value)
+	_, _ = w.Write(body)
 }
 
 func randomString() string {

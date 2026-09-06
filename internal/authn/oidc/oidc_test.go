@@ -89,7 +89,7 @@ func TestBrowserLoginRoundTrip(t *testing.T) {
 	assert.Equal(authz.Principal{Kind: authz.PrincipalUser, Name: "Alice", Email: "alice@example.com", Role: authz.RoleMember}, principal)
 
 	_, err = provider.CompleteLogin(t.Context(), callback.Get("state"), login.Binding, callback.Get("code"))
-	assert.ErrorIs(err, oidc.ErrLoginExpired, "a login completes once")
+	require.ErrorIs(err, oidc.ErrLoginExpired, "a login completes once")
 }
 
 func TestBrowserLoginRejectsForeignBrowserAndUnknownState(t *testing.T) {
@@ -177,9 +177,9 @@ func TestRoleMapping(t *testing.T) {
 }
 
 func TestConfigValidation(t *testing.T) {
-	assert := assert.New(t)
+	require := require.New(t)
 	base := oidc.Config{Issuer: "https://idp.example", ClientID: "c", PublicURL: "https://vault.example", AdminGroups: []string{"a"}}
-	assert.NoError(base.Validate())
+	require.NoError(base.Validate())
 
 	cases := map[string]func(*oidc.Config){
 		"http issuer":       func(c *oidc.Config) { c.Issuer = "http://idp.example" },
@@ -193,8 +193,8 @@ func TestConfigValidation(t *testing.T) {
 	for name, mutate := range cases {
 		cfg := base
 		mutate(&cfg)
-		assert.Error(cfg.Validate(), name)
+		require.Error(cfg.Validate(), name)
 	}
 	_, err := oidc.New(oidc.Config{Issuer: "https://idp.example", Resource: "https://vault.example/mcp", ViewerGroups: []string{"v"}})
-	assert.NoError(err, "bearer-only configuration needs no client")
+	require.NoError(err, "bearer-only configuration needs no client")
 }

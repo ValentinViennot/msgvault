@@ -70,7 +70,7 @@ func (c Config) Validate() error {
 	if err != nil || issuer.Host == "" {
 		return fmt.Errorf("issuer %q is not an absolute URL", c.Issuer)
 	}
-	if issuer.Scheme != "https" && !(c.InsecureAllowHTTP && issuer.Scheme == "http") {
+	if issuer.Scheme != "https" && (!c.InsecureAllowHTTP || issuer.Scheme != "http") {
 		return fmt.Errorf("issuer %q must use https", c.Issuer)
 	}
 	if c.PublicURL != "" {
