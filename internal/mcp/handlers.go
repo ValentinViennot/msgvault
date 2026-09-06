@@ -19,6 +19,7 @@ import (
 	"go.kenn.io/msgvault/internal/personscope"
 	personresolver "go.kenn.io/msgvault/internal/personscope/resolver"
 	"go.kenn.io/msgvault/internal/query"
+	"go.kenn.io/msgvault/internal/savedview"
 	"go.kenn.io/msgvault/internal/search"
 	"go.kenn.io/msgvault/internal/store"
 	"go.kenn.io/msgvault/internal/vector"
@@ -136,6 +137,7 @@ type handlers struct {
 	documentSearcher   DocumentSearcher
 	personFileSearcher PersonFileSearcher
 	peopleBackend      peoplebrowser.Backend
+	savedViews         savedview.Service
 
 	// Optional vector-search wiring. When hybridEngine is nil, the
 	// search_message_bodies handler rejects mode=vector and mode=hybrid with
