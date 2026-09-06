@@ -12,7 +12,7 @@ All notable changes to msgvault, grouped by release.
 
 - The HTTP API separates observed participant analytics from durable curated
   people, crossing the API schema 2.0 compatibility boundary at 2.1.0. The
-  current unreleased API schema is 2.15.0. Version 2.14.0 also replaces the CardDAV
+  current unreleased API schema is 2.17.0. Version 2.14.0 also replaces the CardDAV
   publication and conflict response shapes with bounded projections that
   omit raw vCards and resource hrefs. The
   analytical routes formerly under `/api/v1/people/*` (search, detail,
@@ -33,6 +33,15 @@ All notable changes to msgvault, grouped by release.
   should pass `account` or stage each source separately.
 
 **Features**
+
+- Roles and named API keys. `[[auth.api_keys]]` entries carry a `viewer`,
+  `member`, or `admin` role while `[server].api_key` stays the administrator.
+  The daemon answers `403 forbidden` for operations a role does not cover,
+  reports the caller on `GET /api/v1/me` and in the session bootstrap, and the
+  Web UI shows who is signed in with a sign-out control. `msgvault mcp --http`
+  accepts named keys and exposes each caller only the tools its role permits.
+  `[auth] api_key_login = false` hides the API-key login form. API schema
+  2.17.0.
 
 - Web Directory workspace: browse and search promoted durable people, filter
   by contact state, category, organization, and last contact, and maintain a

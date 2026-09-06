@@ -189,13 +189,20 @@ func withAPIKeySecurity(op huma.Operation) huma.Operation {
 
 func (s *Server) humaAuthMiddleware(ctx huma.Context, next func(huma.Context)) {
 	req, _ := humago.Unwrap(ctx)
-	if s.requestAuthentication(req).Mode != AuthModeRequired {
-		next(ctx)
+	auth := s.requestAuthentication(req)
+	if auth.Mode == AuthModeRequired {
+		s.logUnauthorizedAPIRequest(req)
+		writeHumaError(ctx, http.StatusUnauthorized, "unauthorized", "Invalid or missing API key")
 		return
 	}
-
-	s.logUnauthorizedAPIRequest(req)
-	writeHumaError(ctx, http.StatusUnauthorized, "unauthorized", "Invalid or missing API key")
+	required := minimumRoleForOperation(ctx.Operation())
+	if !auth.Principal.Can(required) {
+		s.logForbiddenAPIRequest(req, auth.Principal, required)
+		writeHumaError(ctx, http.StatusForbidden, "forbidden",
+			fmt.Sprintf("This operation requires the %s role", required))
+		return
+	}
+	next(ctx)
 }
 
 func writeHumaError(ctx huma.Context, status int, code string, message string) {
@@ -254,6 +261,7 @@ func (s *Server) registerHumaRoutes(api huma.API, apiV1 huma.API) {
 	}, s.handleDaemonShutdown)
 
 	registerAPIV1RawHumaJSONRoute[StatsResponse](apiV1, "getStats", http.MethodGet, "/stats", "Get archive statistics", s.handleStats)
+	registerAPIV1RawHumaJSONRoute[PrincipalInfo](apiV1, "getMe", http.MethodGet, "/me", "Get the calling principal", s.handleMe)
 	s.registerImportJobRoutes(apiV1)
 	s.registerSettingsRoutes(apiV1)
 	s.registerCardDAVRoutes(apiV1)

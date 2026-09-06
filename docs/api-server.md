@@ -13,7 +13,7 @@ background sync scheduler to keep accounts up to date on a cron-based schedule.
 The complete UI is embedded in the release binary; see [Web UI](/docs/web-ui/) for
 browser login, secure remote deployment, search states, and keyboard controls.
 
-The API is registered through Huma and exposes a generated OpenAPI document at `/openapi.json`. You can also run `msgvault openapi` to print the same checked-in contract without starting a daemon or opening the archive database. The OpenAPI `info.version` is the API schema version used for client/server compatibility; the current schema is 2.15.0. Within the unreleased 2.x line, 2.14.0 replaces the CardDAV publication and conflict response shapes with bounded projections that omit raw vCards and resource hrefs. The running daemon binary version is exposed separately in the generated document metadata. The API queries the same archive database and attachment store as the CLI, Web UI, and TUI. SQLite is the default archive database; PostgreSQL is supported when `[data].database_url` is a PostgreSQL DSN. Keyword search and ordinary archive reads stay local to that database. If vector search is enabled, semantic and hybrid search also call the embedding endpoint configured in `[vector.embeddings]`. The server is designed for interactive archive use, local integrations, dashboards, and automation scripts.
+The API is registered through Huma and exposes a generated OpenAPI document at `/openapi.json`. You can also run `msgvault openapi` to print the same checked-in contract without starting a daemon or opening the archive database. The OpenAPI `info.version` is the API schema version used for client/server compatibility; the current schema is 2.17.0. Within the unreleased 2.x line, 2.14.0 replaces the CardDAV publication and conflict response shapes with bounded projections that omit raw vCards and resource hrefs. The running daemon binary version is exposed separately in the generated document metadata. The API queries the same archive database and attachment store as the CLI, Web UI, and TUI. SQLite is the default archive database; PostgreSQL is supported when `[data].database_url` is a PostgreSQL DSN. Keyword search and ordinary archive reads stay local to that database. If vector search is enabled, semantic and hybrid search also call the embedding endpoint configured in `[vector.embeddings]`. The server is designed for interactive archive use, local integrations, dashboards, and automation scripts.
 
 Go integrations can use the generated client in `pkg/client`. The wrapper
 handles msgvault-specific response details such as deletion staging dry-runs
@@ -74,6 +74,24 @@ is required. Three API-key authentication methods are supported:
 | Plain auth header | `Authorization: <key>` | `Authorization: my-secret` |
 
 If no `api_key` is configured, authentication is not required regardless of bind address. The separate `allow_insecure` / security validation prevents starting without an API key on non-loopback addresses.
+
+### Roles
+
+Every authenticated caller has a role. `[server].api_key` and a keyless
+loopback daemon are administrators; `[[auth.api_keys]]` entries carry the role
+they declare (see [Configuration](/docs/configuration/#auth)). An operation the
+caller's role does not cover returns `403 Forbidden` with `error: "forbidden"`;
+missing or invalid credentials still return `401`.
+
+| Role | May |
+|---|---|
+| `viewer` | Read messages, attachments, files, people, and statistics; run searches, exploration, and aggregates |
+| `member` | Everything a viewer may, plus curation: Saved Views, people and organizations, relationships and employments, attributes and notes, day entries, message task links |
+| `admin` | Everything, including accounts and sync, imports, deletions, settings, CardDAV, index maintenance, the CLI transport, and `POST /api/v1/query` |
+
+`GET /api/v1/me` returns the caller's `kind`, `name`, `email`, and `role`.
+`GET /api/session` carries the same `principal` for an authenticated browser,
+plus `login_methods`, the ways a browser may establish a session on this daemon.
 
 ## API Endpoints
 

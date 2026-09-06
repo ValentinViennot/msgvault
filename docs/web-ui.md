@@ -64,7 +64,10 @@ api_port = 8080
 
 The default loopback deployment is trusted. If an API key is active and the
 request is not loopback-trusted, `/` still loads the public shell and the UI asks
-for the key. A successful login creates an expiring, in-memory browser session.
+for the key. A successful login creates an expiring, in-memory browser session that carries
+the key's role; named `[[auth.api_keys]]` entries log in the same way, Settings
+shows the signed-in caller with a sign-out control, and `[auth]
+api_key_login = false` hides the form.
 Daemon restarts, logout, expiry, and API-key activation invalidate sessions.
 Existing bearer-key API clients are unchanged.
 

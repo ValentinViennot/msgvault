@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"go.kenn.io/msgvault/internal/config"
 	"go.kenn.io/msgvault/internal/daemonclient"
 	"go.kenn.io/msgvault/internal/deletion"
 	mcpserver "go.kenn.io/msgvault/internal/mcp"
@@ -63,10 +64,11 @@ Add to Claude Desktop config:
 		opts.AllowProfileWrites = mcpAllowProfileWrites
 
 		if mcpHTTPAddr != "" {
+			keys := mcpNamedKeys(cfg)
 			normalized, err := normalizeMCPHTTPAddr(
 				mcpHTTPAddr,
 				mcpHTTPAllowInsecure,
-				cfg.Server.APIKey != "",
+				cfg.Server.APIKey != "" || len(keys) > 0,
 			)
 			if err != nil {
 				return usageErr(cmd, err)
@@ -74,11 +76,27 @@ Add to Claude Desktop config:
 			return serveMCPHTTPWithOptions(ctx, opts, mcpserver.HTTPOptions{
 				Addr:        normalized,
 				APIKey:      cfg.Server.APIKey,
+				Keys:        keys,
 				AllowWrites: mcpHTTPAllowWrites,
 			})
 		}
 		return mcpserver.ServeWithOptions(ctx, opts)
 	},
+}
+
+// mcpNamedKeys resolves the [[auth.api_keys]] entries the HTTP listener
+// accepts beside [server].api_key. Unresolvable entries are logged and
+// skipped, matching the daemon.
+func mcpNamedKeys(cfg *config.Config) []mcpserver.NamedKey {
+	resolved, warnings := cfg.Auth.ResolveAPIKeys(nil)
+	for _, warning := range warnings {
+		logger.Warn(warning)
+	}
+	keys := make([]mcpserver.NamedKey, 0, len(resolved))
+	for _, key := range resolved {
+		keys = append(keys, mcpserver.NamedKey{Name: key.Name, Key: key.Key, Role: key.Role})
+	}
+	return keys
 }
 
 func daemonMCPServeOptions(ctx context.Context, st *daemonclient.Client) (mcpserver.ServeOptions, error) {

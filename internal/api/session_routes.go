@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
+	"go.kenn.io/msgvault/internal/authz"
 )
 
 const (
@@ -38,6 +39,41 @@ type SessionStatus struct {
 	CSRFToken        string   `json:"csrf_token,omitempty"`
 	HTTPS            bool     `json:"https"`
 	PlainHTTPWarning bool     `json:"plain_http_warning"`
+	// Principal identifies the authenticated caller; absent when login is
+	// required.
+	Principal *PrincipalInfo `json:"principal,omitempty"`
+	// LoginMethods lists how a browser may establish a session on this daemon.
+	LoginMethods []string `json:"login_methods" doc:"Available login methods: api_key"`
+}
+
+// PrincipalInfo is the public projection of the authenticated caller.
+type PrincipalInfo struct {
+	Kind  authz.PrincipalKind `json:"kind" enum:"loopback,api_key,user"`
+	Name  string              `json:"name,omitempty"`
+	Email string              `json:"email,omitempty"`
+	Role  authz.Role          `json:"role" enum:"viewer,member,admin"`
+}
+
+func principalInfo(principal authz.Principal) *PrincipalInfo {
+	if principal.IsZero() {
+		return nil
+	}
+	return &PrincipalInfo{
+		Kind:  principal.Kind,
+		Name:  principal.Name,
+		Email: principal.Email,
+		Role:  principal.Role,
+	}
+}
+
+const loginMethodAPIKey = "api_key"
+
+func (s *Server) loginMethods() []string {
+	methods := make([]string, 0, 1)
+	if s.cfg.Server.APIKey != "" && s.cfg.Auth.APIKeyLoginEnabled() {
+		methods = append(methods, loginMethodAPIKey)
+	}
+	return methods
 }
 
 func (s *Server) registerSessionRoutes(api huma.API) {
@@ -90,12 +126,17 @@ func (s *Server) handleSessionLogin(w http.ResponseWriter, r *http.Request) {
 	if !requireSingleJSONValue(w, decoder, "bad_request") {
 		return
 	}
-	if s.cfg.Server.APIKey == "" || !constantTimeAPIKeyEqual(input.APIKey, s.cfg.Server.APIKey) {
+	if !s.cfg.Auth.APIKeyLoginEnabled() {
+		writeError(w, http.StatusForbidden, "api_key_login_disabled", "API-key login is disabled on this daemon")
+		return
+	}
+	principal, ok := s.principalForAPIKey(input.APIKey)
+	if !ok {
 		writeError(w, http.StatusUnauthorized, "unauthorized", "Invalid API key")
 		return
 	}
 
-	id, session, err := s.sessions.create()
+	id, session, err := s.sessions.create(principal)
 	if err != nil {
 		s.logger.Error("create browser session", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Could not create browser session")
@@ -115,7 +156,7 @@ func (s *Server) handleSessionLogin(w http.ResponseWriter, r *http.Request) {
 		Secure:   https,
 		SameSite: http.SameSiteStrictMode,
 	})
-	writeJSON(w, http.StatusOK, sessionStatus(AuthModeSession, session.CSRFToken, https))
+	writeJSON(w, http.StatusOK, s.sessionStatus(AuthModeSession, session.CSRFToken, principal, https))
 }
 
 func (s *Server) handleSessionBootstrap(w http.ResponseWriter, r *http.Request) {
@@ -124,7 +165,18 @@ func (s *Server) handleSessionBootstrap(w http.ResponseWriter, r *http.Request) 
 	if auth.Mode == AuthModeSession {
 		csrfToken = auth.Session.CSRFToken
 	}
-	writeJSON(w, http.StatusOK, sessionStatus(auth.Mode, csrfToken, requestUsesHTTPS(r)))
+	writeJSON(w, http.StatusOK, s.sessionStatus(auth.Mode, csrfToken, auth.Principal, requestUsesHTTPS(r)))
+}
+
+// handleMe returns the calling principal. It answers only for authenticated
+// callers because it is registered under /api/v1.
+func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
+	info := principalInfo(s.requestAuthentication(r).Principal)
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "Invalid or missing API key")
+		return
+	}
+	writeJSON(w, http.StatusOK, info)
 }
 
 func (s *Server) handleSessionLogout(w http.ResponseWriter, r *http.Request) {
@@ -145,12 +197,14 @@ func (s *Server) handleSessionLogout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func sessionStatus(mode AuthMode, csrfToken string, https bool) SessionStatus {
+func (s *Server) sessionStatus(mode AuthMode, csrfToken string, principal authz.Principal, https bool) SessionStatus {
 	return SessionStatus{
 		AuthMode:         mode,
 		CSRFToken:        csrfToken,
 		HTTPS:            https,
 		PlainHTTPWarning: !https,
+		Principal:        principalInfo(principal),
+		LoginMethods:     s.loginMethods(),
 	}
 }
 
