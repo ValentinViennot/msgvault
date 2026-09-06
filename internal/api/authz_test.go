@@ -30,6 +30,8 @@ func pathOperations(item *huma.PathItem) map[string]*huma.Operation {
 // routes the daemon actually registers: a new /api/v1 operation must be given
 // a role, and a stale policy entry must be removed.
 func TestEveryAPIV1OperationIsClassified(t *testing.T) {
+	assert := assert.New(t)
+	require := require.New(t)
 	doc := OpenAPIDocument()
 	seen := make(map[string]bool)
 	for path, item := range doc.Paths {
@@ -37,23 +39,23 @@ func TestEveryAPIV1OperationIsClassified(t *testing.T) {
 			if op == nil {
 				continue
 			}
-			require.NotEmpty(t, op.OperationID, "%s %s has no operation ID", method, path)
+			require.NotEmpty(op.OperationID, "%s %s has no operation ID", method, path)
 			if !strings.HasPrefix(path, "/api/v1/") {
 				_, classified := operationMinimumRole[op.OperationID]
-				assert.False(t, classified, "%s %s is public and must not carry a role", method, path)
+				assert.False(classified, "%s %s is public and must not carry a role", method, path)
 				continue
 			}
 			_, classified := operationMinimumRole[op.OperationID]
-			assert.True(t, classified, "%s %s (%s) has no entry in operationMinimumRole", method, path, op.OperationID)
+			assert.True(classified, "%s %s (%s) has no entry in operationMinimumRole", method, path, op.OperationID)
 			seen[op.OperationID] = true
 		}
 	}
 	for id := range operationMinimumRole {
-		assert.True(t, seen[id], "policy entry %q matches no registered /api/v1 operation", id)
+		assert.True(seen[id], "policy entry %q matches no registered /api/v1 operation", id)
 	}
-	assert.Equal(t, authz.RoleAdmin, minimumRoleForOperation(&huma.Operation{OperationID: "unknownOperation"}),
+	assert.Equal(authz.RoleAdmin, minimumRoleForOperation(&huma.Operation{OperationID: "unknownOperation"}),
 		"an unclassified operation fails closed")
-	assert.Equal(t, authz.RoleAdmin, minimumRoleForOperation(nil))
+	assert.Equal(authz.RoleAdmin, minimumRoleForOperation(nil))
 }
 
 func newRoleTestServer(t *testing.T) *Server {
@@ -79,21 +81,23 @@ func TestRolePolicyOverHTTP(t *testing.T) {
 	}
 
 	t.Run("me reports the caller", func(t *testing.T) {
+		assert := assert.New(t)
+		require := require.New(t)
 		for key, want := range map[string]PrincipalInfo{
 			"admin-secret-value":   {Kind: authz.PrincipalAPIKey, Name: "server", Role: authz.RoleAdmin},
 			"reader-secret-value":  {Kind: authz.PrincipalAPIKey, Name: "reader", Role: authz.RoleViewer},
 			"curator-secret-value": {Kind: authz.PrincipalAPIKey, Name: "curator", Role: authz.RoleMember},
 		} {
 			resp := performSessionRequest(t, srv, http.MethodGet, "/api/v1/me", nil, bearer(key), false)
-			require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+			require.Equal(http.StatusOK, resp.Code, resp.Body.String())
 			var got PrincipalInfo
-			require.NoError(t, decodeJSONBody(resp, &got))
-			assert.Equal(t, want, got)
+			require.NoError(decodeJSONBody(resp, &got))
+			assert.Equal(want, got)
 		}
 		resp := performSessionRequest(t, srv, http.MethodGet, "/api/v1/me", nil, nil, false)
-		assert.Equal(t, http.StatusUnauthorized, resp.Code)
+		assert.Equal(http.StatusUnauthorized, resp.Code)
 		resp = performSessionRequest(t, srv, http.MethodGet, "/api/v1/me", nil, bearer("unknown"), false)
-		assert.Equal(t, http.StatusUnauthorized, resp.Code)
+		assert.Equal(http.StatusUnauthorized, resp.Code)
 	})
 
 	tests := []struct {
@@ -114,21 +118,24 @@ func TestRolePolicyOverHTTP(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			assert := assert.New(t)
 			resp := performSessionRequest(t, srv, tt.method, tt.path, []byte(`{}`), bearer(tt.key), false)
 			if tt.wantForbidden {
-				assert.Equal(t, http.StatusForbidden, resp.Code, resp.Body.String())
-				assert.Contains(t, resp.Body.String(), `"forbidden"`)
+				assert.Equal(http.StatusForbidden, resp.Code, resp.Body.String())
+				assert.Contains(resp.Body.String(), `"forbidden"`)
 				return
 			}
 			// The handler may reject the placeholder body or lack a backing
 			// store in this fixture; the policy itself must not refuse.
-			assert.NotEqual(t, http.StatusForbidden, resp.Code, resp.Body.String())
-			assert.NotEqual(t, http.StatusUnauthorized, resp.Code, resp.Body.String())
+			assert.NotEqual(http.StatusForbidden, resp.Code, resp.Body.String())
+			assert.NotEqual(http.StatusUnauthorized, resp.Code, resp.Body.String())
 		})
 	}
 }
 
 func TestNamedKeyCollidingWithServerKeyIsIgnored(t *testing.T) {
+	assert := assert.New(t)
+	require := require.New(t)
 	cfg := &config.Config{
 		Server: config.ServerConfig{APIKey: "shared-secret-value"},
 		Auth: config.AuthConfig{APIKeys: []config.APIKeyConfig{
@@ -139,15 +146,15 @@ func TestNamedKeyCollidingWithServerKeyIsIgnored(t *testing.T) {
 	}
 	srv := NewServer(cfg, nil, nil, testLogger())
 	t.Cleanup(func() {
-		require.NoError(t, srv.Shutdown(context.Background()))
+		require.NoError(srv.Shutdown(context.Background()))
 	})
 	principal, ok := srv.principalForAPIKey("shared-secret-value")
-	require.True(t, ok)
-	assert.Equal(t, authz.RoleAdmin, principal.Role, "the server key keeps its privilege")
+	require.True(ok)
+	assert.Equal(authz.RoleAdmin, principal.Role, "the server key keeps its privilege")
 	principal, ok = srv.principalForAPIKey("same-secret-value")
-	require.True(t, ok)
-	assert.Equal(t, "first", principal.Name, "the first definition of a duplicated secret wins")
-	assert.Equal(t, authz.RoleViewer, principal.Role)
+	require.True(ok)
+	assert.Equal("first", principal.Name, "the first definition of a duplicated secret wins")
+	assert.Equal(authz.RoleViewer, principal.Role)
 }
 
 func decodeJSONBody(resp *httptest.ResponseRecorder, target any) error {

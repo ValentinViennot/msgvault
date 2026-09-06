@@ -459,6 +459,8 @@ func requireSessionCookie(t *testing.T, resp *httptest.ResponseRecorder) *http.C
 }
 
 func TestLoginWithNamedKeyCreatesRoleBoundSession(t *testing.T) {
+	assert := assert.New(t)
+	require := require.New(t)
 	cfg := &config.Config{
 		Server: config.ServerConfig{APIKey: testSessionAPIKey},
 		Auth: config.AuthConfig{APIKeys: []config.APIKeyConfig{
@@ -467,40 +469,42 @@ func TestLoginWithNamedKeyCreatesRoleBoundSession(t *testing.T) {
 	}
 	srv := NewServer(cfg, nil, nil, testLogger())
 	t.Cleanup(func() {
-		require.NoError(t, srv.Shutdown(context.Background()))
+		require.NoError(srv.Shutdown(context.Background()))
 	})
 
 	resp := performSessionRequest(t, srv, http.MethodPost, sessionLoginPath,
 		[]byte(`{"api_key":"reader-secret-value"}`), nil, false)
-	require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+	require.Equal(http.StatusOK, resp.Code, resp.Body.String())
 	status := decodeSessionStatus(t, resp)
-	assert.Equal(t, AuthModeSession, status.AuthMode)
-	assert.Equal(t, []string{"api_key"}, status.LoginMethods)
-	require.NotNil(t, status.Principal)
-	assert.Equal(t, PrincipalInfo{Kind: authz.PrincipalAPIKey, Name: "reader", Role: authz.RoleViewer}, *status.Principal)
+	assert.Equal(AuthModeSession, status.AuthMode)
+	assert.Equal([]string{"api_key"}, status.LoginMethods)
+	require.NotNil(status.Principal)
+	assert.Equal(PrincipalInfo{Kind: authz.PrincipalAPIKey, Name: "reader", Role: authz.RoleViewer}, *status.Principal)
 	cookie := requireSessionCookie(t, resp)
 
 	headers := http.Header{"Cookie": []string{cookie.Name + "=" + cookie.Value}}
 	me := performSessionRequest(t, srv, http.MethodGet, "/api/v1/me", nil, headers, false)
-	require.Equal(t, http.StatusOK, me.Code, me.Body.String())
+	require.Equal(http.StatusOK, me.Code, me.Body.String())
 	var principal PrincipalInfo
-	require.NoError(t, decodeJSONBody(me, &principal))
-	assert.Equal(t, authz.RoleViewer, principal.Role)
+	require.NoError(decodeJSONBody(me, &principal))
+	assert.Equal(authz.RoleViewer, principal.Role)
 
 	headers.Set(csrfHeaderName, status.CSRFToken)
 	headers.Set("Origin", "http://example.com")
 	forbidden := performSessionRequest(t, srv, http.MethodPost, "/api/v1/saved-views", []byte(`{}`), headers, false)
-	assert.Equal(t, http.StatusForbidden, forbidden.Code, forbidden.Body.String())
-	assert.Contains(t, forbidden.Body.String(), `"forbidden"`)
+	assert.Equal(http.StatusForbidden, forbidden.Code, forbidden.Body.String())
+	assert.Contains(forbidden.Body.String(), `"forbidden"`)
 
 	bootstrap := performSessionRequest(t, srv, http.MethodGet, sessionPath, nil, headers, false)
-	require.Equal(t, http.StatusOK, bootstrap.Code)
+	require.Equal(http.StatusOK, bootstrap.Code)
 	bootstrapStatus := decodeSessionStatus(t, bootstrap)
-	require.NotNil(t, bootstrapStatus.Principal)
-	assert.Equal(t, "reader", bootstrapStatus.Principal.Name)
+	require.NotNil(bootstrapStatus.Principal)
+	assert.Equal("reader", bootstrapStatus.Principal.Name)
 }
 
 func TestAPIKeyLoginCanBeDisabled(t *testing.T) {
+	assert := assert.New(t)
+	require := require.New(t)
 	disabled := false
 	cfg := &config.Config{
 		Server: config.ServerConfig{APIKey: testSessionAPIKey},
@@ -508,23 +512,23 @@ func TestAPIKeyLoginCanBeDisabled(t *testing.T) {
 	}
 	srv := NewServer(cfg, nil, nil, testLogger())
 	t.Cleanup(func() {
-		require.NoError(t, srv.Shutdown(context.Background()))
+		require.NoError(srv.Shutdown(context.Background()))
 	})
 
 	resp := performSessionRequest(t, srv, http.MethodPost, sessionLoginPath,
 		[]byte(`{"api_key":"`+testSessionAPIKey+`"}`), nil, false)
-	assert.Equal(t, http.StatusForbidden, resp.Code, resp.Body.String())
-	assert.Contains(t, resp.Body.String(), "api_key_login_disabled")
+	assert.Equal(http.StatusForbidden, resp.Code, resp.Body.String())
+	assert.Contains(resp.Body.String(), "api_key_login_disabled")
 
 	bootstrap := performSessionRequest(t, srv, http.MethodGet, sessionPath, nil, nil, false)
-	require.Equal(t, http.StatusOK, bootstrap.Code)
+	require.Equal(http.StatusOK, bootstrap.Code)
 	status := decodeSessionStatus(t, bootstrap)
-	assert.Equal(t, AuthModeRequired, status.AuthMode)
-	assert.Empty(t, status.LoginMethods)
-	assert.Nil(t, status.Principal)
+	assert.Equal(AuthModeRequired, status.AuthMode)
+	assert.Empty(status.LoginMethods)
+	assert.Nil(status.Principal)
 
 	// The key itself still authenticates API clients.
 	me := performSessionRequest(t, srv, http.MethodGet, "/api/v1/me", nil,
 		http.Header{"Authorization": []string{"Bearer " + testSessionAPIKey}}, false)
-	assert.Equal(t, http.StatusOK, me.Code, me.Body.String())
+	assert.Equal(http.StatusOK, me.Code, me.Body.String())
 }
