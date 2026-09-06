@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	releaseOwner         = "kenn-io"
+	releaseOwner         = "unstaticlabs"
 	releaseRepo          = "msgvault"
 	binaryName           = "msgvault"
 	cacheFileName        = "update_check.json"
