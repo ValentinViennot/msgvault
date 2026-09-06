@@ -280,43 +280,33 @@ func (c *CapabilityChecker) Negotiate(
 }
 
 func capabilityOutputModes(protocol Protocol) []OutputMode {
-	switch protocol {
-	case ProtocolOpenAIChat, ProtocolOpenAIResponses:
-		return []OutputMode{OutputModeNativeJSONSchema, OutputModeJSONObject, OutputModePromptJSON}
-	case ProtocolAnthropicMessages, ProtocolGoogleGenerateContent:
-		return []OutputMode{OutputModeNativeJSONSchema, OutputModePromptJSON}
-	default:
+	capability, ok := ProtocolCapabilityFor(protocol)
+	if !ok {
 		return nil
 	}
+	return capability.OutputModes
 }
 
 func capabilityTokenParameters(protocol Protocol) []string {
-	if protocol == ProtocolOpenAIChat {
-		return []string{"max_completion_tokens", "max_tokens"}
+	capability, ok := ProtocolCapabilityFor(protocol)
+	if !ok {
+		return nil
 	}
-	return []string{""}
+	return capability.TokenParameters
 }
 
 func validateCapabilityReasoning(candidate ProviderConfig) error {
 	if err := validateReasoning(candidate); err != nil {
 		return err
 	}
-	switch candidate.Protocol {
-	case ProtocolOpenAIChat:
-		return nil
-	case ProtocolOpenAIResponses:
-		if candidate.ReasoningMode == "" || candidate.ReasoningMode == reasoningModeProviderDefault {
-			return nil
+	capability, ok := ProtocolCapabilityFor(candidate.Protocol)
+	if !ok {
+		if candidate.Protocol == ProtocolCodexAppServer {
+			return errors.New("reasoning capability negotiation is unavailable for codex app server")
 		}
-	case ProtocolAnthropicMessages, ProtocolGoogleGenerateContent:
-		if candidate.ReasoningEffort == "" &&
-			(candidate.ReasoningMode == "" || candidate.ReasoningMode == reasoningModeProviderDefault) {
-			return nil
-		}
-	case ProtocolCodexAppServer:
-		return errors.New("reasoning capability negotiation is unavailable for codex app server")
+		return errors.New("reasoning settings are not represented by the selected protocol")
 	}
-	return errors.New("reasoning settings are not represented by the selected protocol")
+	return capability.validateReasoning(candidate)
 }
 
 func capabilityReasoningRequested(candidate ProviderConfig) bool {
