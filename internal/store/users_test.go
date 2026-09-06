@@ -47,9 +47,9 @@ func TestRecordUserLoginCreatesBindsAndRefreshes(t *testing.T) {
 	require.Len(users, 1)
 
 	_, err = st.RecordUserLogin(ctx, store.UserLogin{Issuer: "https://idp.example", Subject: "x"})
-	assert.ErrorIs(err, store.ErrUserEmailRequired)
+	require.ErrorIs(err, store.ErrUserEmailRequired)
 	_, err = st.RecordUserLogin(ctx, store.UserLogin{Email: "x@example.com"})
-	assert.ErrorIs(err, store.ErrUserIdentityRequired)
+	require.ErrorIs(err, store.ErrUserIdentityRequired)
 }
 
 func TestRecordUserLoginKeepsAddressOwnedByAnotherUser(t *testing.T) {
@@ -86,6 +86,6 @@ func TestSetUserDisabledAndGetUser(t *testing.T) {
 	assert.True(disabled.Disabled, "a login does not re-enable a disabled user")
 
 	_, err = st.GetUser(ctx, 424242)
-	assert.ErrorIs(err, store.ErrUserNotFound)
-	assert.ErrorIs(st.SetUserDisabled(ctx, 424242, false), store.ErrUserNotFound)
+	require.ErrorIs(err, store.ErrUserNotFound)
+	require.ErrorIs(st.SetUserDisabled(ctx, 424242, false), store.ErrUserNotFound)
 }

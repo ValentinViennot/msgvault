@@ -105,9 +105,9 @@ func TestBrowserLoginRejectsForeignBrowserAndUnknownState(t *testing.T) {
 	callback := followAuthorize(t, login.AuthURL)
 
 	_, err = provider.CompleteLogin(t.Context(), callback.Get("state"), "another-browser", callback.Get("code"))
-	assert.ErrorIs(err, oidc.ErrLoginBinding)
+	require.ErrorIs(err, oidc.ErrLoginBinding)
 	_, err = provider.CompleteLogin(t.Context(), "never-issued", login.Binding, callback.Get("code"))
-	assert.ErrorIs(err, oidc.ErrLoginExpired)
+	require.ErrorIs(err, oidc.ErrLoginExpired)
 }
 
 func TestBrowserLoginFallsBackToUserInfoForGroups(t *testing.T) {
