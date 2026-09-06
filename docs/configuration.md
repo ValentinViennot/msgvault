@@ -629,6 +629,13 @@ ignored. `[server].api_key` remains required for non-loopback binding and keeps
 its administrator privilege. See [Web UI & API Server](/docs/api-server/#roles)
 for the operations each role covers.
 
+A container deployment can declare the same entries without touching
+`config.toml`: `MSGVAULT_AUTH_API_KEYS` holds a JSON array of entries with the
+same keys (`[{"name":"reporting","key_env":"MSGVAULT_KEY_REPORTING","role":"viewer"}]`),
+appended to the file's list. `MSGVAULT_REMOTE_URL`, `MSGVAULT_REMOTE_API_KEY`,
+and `MSGVAULT_REMOTE_ALLOW_INSECURE` set `[remote]` the same way, so a sidecar
+such as `msgvault mcp --http` needs no config file with a secret in it.
+
 ### `[auth.oidc]`
 
 Single sign-on through an OpenID Connect provider (Pocket ID, Authelia,

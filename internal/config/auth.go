@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -80,17 +81,25 @@ var oidcEnvOverrides = []struct {
 // AuthEnvOverrideNames lists every environment variable applyAuthEnvOverrides
 // honours, for documentation and tests.
 func AuthEnvOverrideNames() []string {
-	names := []string{"MSGVAULT_AUTH_API_KEY_LOGIN", "MSGVAULT_SERVER_TRUSTED_PROXIES"}
+	names := []string{
+		"MSGVAULT_AUTH_API_KEY_LOGIN", "MSGVAULT_AUTH_API_KEYS", "MSGVAULT_SERVER_TRUSTED_PROXIES",
+		"MSGVAULT_REMOTE_URL", "MSGVAULT_REMOTE_API_KEY", "MSGVAULT_REMOTE_ALLOW_INSECURE",
+	}
 	for _, override := range oidcEnvOverrides {
 		names = append(names, override.name)
 	}
 	return names
 }
 
-// applyAuthEnvOverrides lets a deployment supply the caller model and the
-// trusted proxy list through the environment, where a container manager can
-// own them, instead of editing the archive's config.toml.
-func (c *Config) applyAuthEnvOverrides(lookupEnv func(string) string) {
+// ErrAuthEnvAPIKeys reports a malformed MSGVAULT_AUTH_API_KEYS value.
+var ErrAuthEnvAPIKeys = errors.New("MSGVAULT_AUTH_API_KEYS must be a JSON array of [[auth.api_keys]] entries")
+
+// applyAuthEnvOverrides lets a deployment supply the caller model, the
+// trusted proxy list, and the remote daemon through the environment, where a
+// container manager can own them, instead of editing the archive's
+// config.toml. Named keys from MSGVAULT_AUTH_API_KEYS are appended to the
+// file's entries; the usual validation then rejects duplicate names.
+func (c *Config) applyAuthEnvOverrides(lookupEnv func(string) string) error {
 	if lookupEnv == nil {
 		lookupEnv = os.Getenv
 	}
@@ -103,9 +112,28 @@ func (c *Config) applyAuthEnvOverrides(lookupEnv func(string) string) {
 		enabled := !strings.EqualFold(value, "false") && value != "0"
 		c.Auth.APIKeyLogin = &enabled
 	}
+	if value := strings.TrimSpace(lookupEnv("MSGVAULT_AUTH_API_KEYS")); value != "" {
+		var keys []APIKeyConfig
+		decoder := json.NewDecoder(strings.NewReader(value))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&keys); err != nil {
+			return fmt.Errorf("%w: %w", ErrAuthEnvAPIKeys, err)
+		}
+		c.Auth.APIKeys = append(c.Auth.APIKeys, keys...)
+	}
 	if value := strings.TrimSpace(lookupEnv("MSGVAULT_SERVER_TRUSTED_PROXIES")); value != "" {
 		c.Server.TrustedProxies = splitList(value)
 	}
+	if value := strings.TrimSpace(lookupEnv("MSGVAULT_REMOTE_URL")); value != "" {
+		c.Remote.URL = value
+	}
+	if value := lookupEnv("MSGVAULT_REMOTE_API_KEY"); value != "" {
+		c.Remote.APIKey = value
+	}
+	if value := strings.TrimSpace(lookupEnv("MSGVAULT_REMOTE_ALLOW_INSECURE")); value != "" {
+		c.Remote.AllowInsecure = !strings.EqualFold(value, "false") && value != "0"
+	}
+	return nil
 }
 
 func splitList(value string) []string {
@@ -122,16 +150,16 @@ func splitList(value string) []string {
 // supplies the secret; KeyEnv names an environment variable so the secret can
 // stay out of config.toml.
 type APIKeyConfig struct {
-	Name   string `toml:"name"`
-	Key    string `toml:"key"`
-	KeyEnv string `toml:"key_env"`
-	Role   string `toml:"role"`
+	Name   string `toml:"name" json:"name"`
+	Key    string `toml:"key" json:"key,omitempty"`
+	KeyEnv string `toml:"key_env" json:"key_env,omitempty"`
+	Role   string `toml:"role" json:"role,omitempty"`
 	// User binds the key to a user's address: the key then sees that user's
 	// sources. A key without a user and without the admin role sees none.
-	User string `toml:"user"`
+	User string `toml:"user" json:"user,omitempty"`
 	// OnBehalfOf lets an admin key act for a user named in the
 	// X-Msgvault-On-Behalf-Of header; only the MCP sidecar needs it.
-	OnBehalfOf bool `toml:"on_behalf_of"`
+	OnBehalfOf bool `toml:"on_behalf_of" json:"on_behalf_of,omitempty"`
 }
 
 // ApplyDefaults trims names and gives keys without a role the least privilege.

@@ -755,7 +755,9 @@ func Load(path, homeDir string) (*Config, error) {
 		}
 		// Default config file is optional; the environment may still carry
 		// deployment settings.
-		cfg.applyAuthEnvOverrides(nil)
+		if err := cfg.applyAuthEnvOverrides(nil); err != nil {
+			return nil, err
+		}
 		cfg.Auth.ApplyDefaults()
 		if err := cfg.Auth.Validate(); err != nil {
 			return nil, err
@@ -881,7 +883,9 @@ func decodeConfig(cfg *Config, path string, explicit, homeOverride bool, content
 			return nil, fmt.Errorf("vector config: %w", err)
 		}
 	}
-	cfg.applyAuthEnvOverrides(nil)
+	if err := cfg.applyAuthEnvOverrides(nil); err != nil {
+		return nil, err
+	}
 	cfg.Server.ApplyDefaults()
 	cfg.Discord.ApplyDefaults()
 	if err := cfg.Server.Validate(); err != nil {
