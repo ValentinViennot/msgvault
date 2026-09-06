@@ -84,6 +84,9 @@
       <SettingsWorkspace
         client={session.client}
         plainHTTPWarning={session.status?.plain_http_warning ?? false}
+        principal={session.principal}
+        canSignOut={session.canSignOut}
+        onSignOut={() => void session.logout()}
         {cardDAVRequest}
         {onCardDAVRequestConsumed}
       />

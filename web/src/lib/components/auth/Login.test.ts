@@ -32,6 +32,15 @@ describe('Login', () => {
     await expect(request.clone().json()).resolves.toEqual({ api_key: 'test-key' });
   });
 
+  it('hides the key form when the daemon disables API-key login', async () => {
+    const session = createSessionController(vi.fn<typeof fetch>(async () => response(401)));
+    session.status = { auth_mode: 'required', https: true, plain_http_warning: false, login_methods: [] };
+    render(Login, { session });
+
+    expect(screen.queryByLabelText('API key')).toBeNull();
+    expect(screen.getByRole('status').textContent).toContain('API-key login is disabled');
+  });
+
   it('shows the server error after a rejected key', async () => {
     const session = createSessionController(vi.fn<typeof fetch>(async () => response(401)));
     render(Login, { session });

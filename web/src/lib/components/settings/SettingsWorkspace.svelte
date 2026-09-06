@@ -23,6 +23,7 @@
   import type { APIClient } from '../../api/client';
   import type {
     PersonEnrichmentProviderSetting as GeneratedPersonEnrichmentProviderSetting,
+    PrincipalInfo,
     ProviderCredentialResponse as GeneratedProviderCredentialResponse,
     SettingUpdate as GeneratedSettingUpdate,
     SettingsResponse as GeneratedSettingsResponse,
@@ -54,11 +55,17 @@
   let {
     client,
     plainHTTPWarning = false,
+    principal = undefined,
+    canSignOut = false,
+    onSignOut = () => undefined,
     cardDAVRequest = undefined,
     onCardDAVRequestConsumed = () => undefined,
   }: {
     client: APIClient;
     plainHTTPWarning?: boolean;
+    principal?: PrincipalInfo;
+    canSignOut?: boolean;
+    onSignOut?: () => void;
     cardDAVRequest?: CardDAVSettingsRequest;
     onCardDAVRequestConsumed?: (key: number) => void;
   } = $props();
@@ -326,6 +333,17 @@
     >
       {#snippet panel(activeId)}
         <div class="notices">
+          {#if principal}
+            <p class="session" role="status">
+              <span>
+                Signed in as <strong>{principal.name || principal.email || principal.kind}</strong>
+                ({principal.role}).
+              </span>
+              {#if canSignOut}
+                <Button tone="info" surface="solid" label="Sign out" onclick={onSignOut} />
+              {/if}
+            </p>
+          {/if}
           {#if plainHTTPWarning}
             <p class="warning" role="alert">
               This browser session uses plain HTTP, so its cookie cannot use the Secure flag. Prefer HTTPS for remote
@@ -560,6 +578,15 @@
   }
   .notices p {
     margin: 0;
+  }
+  .session {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--border-subtle, currentColor);
+    border-radius: var(--radius-md);
   }
   .warning,
   .pending {
