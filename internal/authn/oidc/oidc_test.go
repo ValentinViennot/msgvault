@@ -94,7 +94,6 @@ func TestBrowserLoginRoundTrip(t *testing.T) {
 
 func TestBrowserLoginRejectsForeignBrowserAndUnknownState(t *testing.T) {
 	require := require.New(t)
-	assert := assert.New(t)
 	idp := oidctest.New(t)
 	idp.AddUser(oidctest.User{Subject: "alice", Email: "alice@example.com", Groups: []string{"vault_viewer"}})
 	provider := newProvider(t, idp, nil)
