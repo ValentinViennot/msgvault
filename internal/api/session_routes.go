@@ -22,6 +22,9 @@ const (
 	AuthModeLoopback AuthMode = "loopback"
 	AuthModeAPIKey   AuthMode = "api_key"
 	AuthModeSession  AuthMode = "session"
+	// AuthModeToken is a bearer access token issued by the configured
+	// identity provider.
+	AuthModeToken    AuthMode = "token"
 	AuthModeRequired AuthMode = "required"
 )
 
@@ -35,7 +38,7 @@ type SessionLoginRequest struct {
 // token is returned only for a valid browser session so mutation middleware
 // can enforce session-bound requests without exposing it to other auth modes.
 type SessionStatus struct {
-	AuthMode         AuthMode `json:"auth_mode" enum:"loopback,api_key,session,required"`
+	AuthMode         AuthMode `json:"auth_mode" enum:"loopback,api_key,session,token,required"`
 	CSRFToken        string   `json:"csrf_token,omitempty"`
 	HTTPS            bool     `json:"https"`
 	PlainHTTPWarning bool     `json:"plain_http_warning"`
@@ -43,7 +46,15 @@ type SessionStatus struct {
 	// required.
 	Principal *PrincipalInfo `json:"principal,omitempty"`
 	// LoginMethods lists how a browser may establish a session on this daemon.
-	LoginMethods []string `json:"login_methods" doc:"Available login methods: api_key"`
+	LoginMethods []string `json:"login_methods" doc:"Available login methods: api_key, oidc"`
+	// OIDC describes the identity-provider login when one is configured.
+	OIDC *OIDCLoginInfo `json:"oidc,omitempty"`
+}
+
+// OIDCLoginInfo tells the browser how to start an identity-provider login.
+type OIDCLoginInfo struct {
+	ProviderName string `json:"provider_name"`
+	StartURL     string `json:"start_url"`
 }
 
 // PrincipalInfo is the public projection of the authenticated caller.
@@ -66,17 +77,24 @@ func principalInfo(principal authz.Principal) *PrincipalInfo {
 	}
 }
 
-const loginMethodAPIKey = "api_key"
+const (
+	loginMethodAPIKey = "api_key"
+	loginMethodOIDC   = "oidc"
+)
 
 func (s *Server) loginMethods() []string {
-	methods := make([]string, 0, 1)
+	methods := make([]string, 0, 2)
 	if s.cfg.Server.APIKey != "" && s.cfg.Auth.APIKeyLoginEnabled() {
 		methods = append(methods, loginMethodAPIKey)
+	}
+	if s.oidcLoginEnabled() {
+		methods = append(methods, loginMethodOIDC)
 	}
 	return methods
 }
 
 func (s *Server) registerSessionRoutes(api huma.API) {
+	s.registerOIDCSessionRoutes(api)
 	login := huma.Operation{
 		OperationID: "loginSession",
 		Method:      http.MethodPost,
@@ -136,16 +154,23 @@ func (s *Server) handleSessionLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, session, err := s.sessions.create(principal)
+	session, err := s.issueSession(w, r, principal)
 	if err != nil {
 		s.logger.Error("create browser session", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Could not create browser session")
 		return
 	}
-	https := requestUsesHTTPS(r)
-	// Secure follows the verified connection scheme; plain HTTP support is an
-	// explicit deployment mode surfaced by PlainHTTPWarning.
+	writeJSON(w, http.StatusOK, s.sessionStatus(AuthModeSession, session.CSRFToken, principal, requestUsesHTTPS(r)))
+}
 
+// issueSession creates a browser session for principal and sets its cookie.
+// Secure follows the verified connection scheme; plain HTTP support is an
+// explicit deployment mode surfaced by PlainHTTPWarning.
+func (s *Server) issueSession(w http.ResponseWriter, r *http.Request, principal authz.Principal) (browserSession, error) {
+	id, session, err := s.sessions.create(principal)
+	if err != nil {
+		return browserSession{}, err
+	}
 	http.SetCookie(w, &http.Cookie{ //nolint:gosec // Secure follows the verified request scheme; plain HTTP is an explicit supported mode.
 		Name:     sessionCookieName,
 		Value:    id,
@@ -153,10 +178,10 @@ func (s *Server) handleSessionLogin(w http.ResponseWriter, r *http.Request) {
 		Expires:  session.ExpiresAt,
 		MaxAge:   max(1, int(s.sessions.ttl/time.Second)),
 		HttpOnly: true,
-		Secure:   https,
+		Secure:   requestUsesHTTPS(r),
 		SameSite: http.SameSiteStrictMode,
 	})
-	writeJSON(w, http.StatusOK, s.sessionStatus(AuthModeSession, session.CSRFToken, principal, https))
+	return session, nil
 }
 
 func (s *Server) handleSessionBootstrap(w http.ResponseWriter, r *http.Request) {
@@ -205,6 +230,7 @@ func (s *Server) sessionStatus(mode AuthMode, csrfToken string, principal authz.
 		PlainHTTPWarning: !https,
 		Principal:        principalInfo(principal),
 		LoginMethods:     s.loginMethods(),
+		OIDC:             s.oidcLoginInfo(),
 	}
 }
 

@@ -408,6 +408,7 @@ export * from "./networkEdge";
 export * from "./networkEdgeKind";
 export * from "./networkNode";
 export * from "./networkNodeKind";
+export * from "./oIDCLoginInfo";
 export * from "./operationHealth";
 export * from "./operationLaneStatus";
 export * from "./operationLaneStatusHistoryAvailability";

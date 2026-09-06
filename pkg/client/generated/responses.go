@@ -2763,6 +2763,18 @@ type LoginSessionResp struct {
 	JSON200      *LoginSessionResponse
 }
 
+type CompleteOIDCLoginResp struct {
+	HTTPResponse *http.Response
+	Body         []byte
+	StatusCode   int
+}
+
+type StartOIDCLoginResp struct {
+	HTTPResponse *http.Response
+	Body         []byte
+	StatusCode   int
+}
+
 type ListAccountsResp struct {
 	HTTPResponse *http.Response
 	Body         []byte

@@ -753,7 +753,16 @@ func Load(path, homeDir string) (*Config, error) {
 		if explicit {
 			return nil, fmt.Errorf("config file not found: %s", path)
 		}
-		// Default config file is optional
+		// Default config file is optional; the environment may still carry
+		// deployment settings.
+		cfg.applyAuthEnvOverrides(nil)
+		cfg.Auth.ApplyDefaults()
+		if err := cfg.Auth.Validate(); err != nil {
+			return nil, err
+		}
+		if err := cfg.Server.Validate(); err != nil {
+			return nil, err
+		}
 		return cfg, nil
 	}
 	content, err := os.ReadFile(path)
@@ -872,6 +881,7 @@ func decodeConfig(cfg *Config, path string, explicit, homeOverride bool, content
 			return nil, fmt.Errorf("vector config: %w", err)
 		}
 	}
+	cfg.applyAuthEnvOverrides(nil)
 	cfg.Server.ApplyDefaults()
 	cfg.Discord.ApplyDefaults()
 	if err := cfg.Server.Validate(); err != nil {

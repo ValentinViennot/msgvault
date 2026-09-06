@@ -9,5 +9,6 @@ export const SessionStatusAuthMode = {
   loopback: "loopback",
   api_key: "api_key",
   session: "session",
+  token: "token",
   required: "required",
 } as const;

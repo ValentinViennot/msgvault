@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"go.kenn.io/msgvault/internal/apiprotocol"
+	"go.kenn.io/msgvault/internal/authn/oidc"
 	"go.kenn.io/msgvault/internal/config"
 	"go.kenn.io/msgvault/internal/daemonauth"
 	"go.kenn.io/msgvault/internal/operations"
@@ -384,6 +385,8 @@ type Server struct {
 	sessions    *sessionStore
 	// namedKeys are the resolved [[auth.api_keys]] credentials.
 	namedKeys []namedAPIKey
+	oidc      *oidc.Provider
+	userStore UserStore
 	// trustedProxies contains only explicitly configured direct proxy peers.
 	// Forwarded scheme/host data is ignored for every other RemoteAddr.
 	trustedProxies   []netip.Prefix
@@ -452,6 +455,11 @@ type ServerOptions struct {
 	// from the minimal MessageStore so API consumers do not need to implement
 	// unrelated persistence methods.
 	SavedViewStore SavedViewStore
+	// OIDC is the identity provider for browser sign-in and bearer access
+	// tokens; nil leaves both disabled.
+	OIDC *oidc.Provider
+	// UserStore records identity-provider sign-ins; nil skips the record.
+	UserStore      UserStore
 	Engine         query.Engine // Optional: query engine for aggregates and TUI support
 	SQLQueryRunner SQLQueryRunner
 	ShutdownToken  string
@@ -569,6 +577,8 @@ func NewServerWithOptions(opts ServerOptions) *Server {
 		inlineCache:              newInlineParseCache(inlineCacheMaxEntries, inlineCacheMaxBytes),
 		spaHandler:               opts.SPAHandler,
 		sessions:                 newSessionStore(defaultSessionTTL),
+		oidc:                     opts.OIDC,
+		userStore:                opts.UserStore,
 		exploreState:             newExploreServerState(time.Now),
 		exploreCursorKey:         newExploreCursorKey(),
 		trustedProxies:           trustedProxyPrefixes(opts.Config.Server.TrustedProxies),
@@ -1323,6 +1333,9 @@ func (w *trackingResponseWriter) WroteHeader() bool {
 // auth logic drifting.
 func (s *Server) loopbackRateLimitExempt(r *http.Request) bool {
 	if r.Method == http.MethodPost && r.URL.Path == sessionLoginPath {
+		return false
+	}
+	if strings.HasPrefix(r.URL.Path, sessionOIDCPathPrefix) {
 		return false
 	}
 	return isLoopbackRequest(r) && s.apiRequestAuthorized(r)

@@ -627,6 +627,59 @@ ignored. `[server].api_key` remains required for non-loopback binding and keeps
 its administrator privilege. See [Web UI & API Server](/docs/api-server/#roles)
 for the operations each role covers.
 
+### `[auth.oidc]`
+
+Single sign-on through an OpenID Connect provider (Pocket ID, Authelia,
+Keycloak, Entra ID, and similar). Two things can be enabled independently:
+browser login for the Web UI, and bearer access tokens for the API and for
+`msgvault mcp --http`, which then acts as an OAuth 2.1 resource server so MCP
+clients such as Claude Code and claude.ai sign in through the provider. The
+provider's group claims map to msgvault roles.
+
+```toml
+[auth.oidc]
+issuer = "https://id.example.com"
+client_id = "msgvault"                       # browser login client
+client_secret_env = "MSGVAULT_OIDC_CLIENT_SECRET"
+public_url = "https://vault.example.com"     # where browsers reach this daemon
+resource = "https://vault.example.com"       # audience accepted in bearer tokens
+admin_groups = ["msgvault_admin"]
+member_groups = ["msgvault_member"]
+viewer_groups = ["msgvault_viewer"]
+provider_name = "Example ID"                 # login button label
+```
+
+| Key | Default | Description |
+|---|---|---|
+| `issuer` | — | Issuer URL; discovery reads `{issuer}/.well-known/openid-configuration`. Must be `https`. |
+| `client_id` | — | The client registered for browser login; required when `public_url` is set |
+| `client_secret` / `client_secret_env` | — | The client secret, inline or from an environment variable |
+| `public_url` | — | Origin browsers use for this daemon; enables browser login. Register `{public_url}/api/session/oidc/callback` as the client's redirect URI. |
+| `resource` | — | RFC 8707 resource identifier this process accepts as the `aud` of access tokens; enables bearer tokens. Use the MCP endpoint URL for the MCP listener's configuration. |
+| `scopes` | `openid profile email groups` | Scopes requested at browser login |
+| `groups_claim` | `groups` | Claim carrying group names |
+| `admin_groups`, `member_groups`, `viewer_groups` | `[]` | Groups mapped to each role; the most privileged match wins |
+| `allowed_emails` | `[]` | Addresses admitted as viewers when no group matches |
+| `provider_name` | `single sign-on` | Label for the login button |
+
+Access tokens must carry the `msgvault:read` scope, and `msgvault:write`
+for mutations; configure the provider's API resource with those two
+permissions. A person whose groups map to no role cannot sign in even with a
+valid token. Each sign-in is recorded in the `users` table with the role
+derived at that moment; disabling a user there blocks further browser logins.
+
+Every `[auth.oidc]` key, `[auth] api_key_login`, and `[server] trusted_proxies`
+may also be supplied through the environment so a container manager owns
+them: `MSGVAULT_AUTH_OIDC_ISSUER`, `MSGVAULT_AUTH_OIDC_CLIENT_ID`,
+`MSGVAULT_AUTH_OIDC_CLIENT_SECRET`, `MSGVAULT_AUTH_OIDC_PUBLIC_URL`,
+`MSGVAULT_AUTH_OIDC_RESOURCE`, `MSGVAULT_AUTH_OIDC_SCOPES`,
+`MSGVAULT_AUTH_OIDC_GROUPS_CLAIM`, `MSGVAULT_AUTH_OIDC_ADMIN_GROUPS`,
+`MSGVAULT_AUTH_OIDC_MEMBER_GROUPS`, `MSGVAULT_AUTH_OIDC_VIEWER_GROUPS`,
+`MSGVAULT_AUTH_OIDC_ALLOWED_EMAILS`, `MSGVAULT_AUTH_OIDC_PROVIDER_NAME`,
+`MSGVAULT_AUTH_API_KEY_LOGIN`, and `MSGVAULT_SERVER_TRUSTED_PROXIES`. Lists
+are comma-separated. A value from the environment replaces the file's value
+and goes through the same validation.
+
 ### `[web]`
 
 Defaults for the daemon-served browser application. These values can also be

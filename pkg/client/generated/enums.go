@@ -1972,12 +1972,13 @@ const (
 	Session                       SessionStatusAuthMode = "session"
 	SessionStatusAuthModeAPIKey   SessionStatusAuthMode = "api_key"
 	SessionStatusAuthModeLoopback SessionStatusAuthMode = "loopback"
+	Token                         SessionStatusAuthMode = "token"
 )
 
 // Validate checks if the SessionStatusAuthMode value is valid
 func (s SessionStatusAuthMode) Validate() error {
 	switch s {
-	case Required, Session, SessionStatusAuthModeAPIKey, SessionStatusAuthModeLoopback:
+	case Required, Session, SessionStatusAuthModeAPIKey, SessionStatusAuthModeLoopback, Token:
 		return nil
 	default:
 		return runtime.NewValidationErrorsFromString("Enum", fmt.Sprintf("must be a valid SessionStatusAuthMode value, got: %v", s))

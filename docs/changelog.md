@@ -43,6 +43,18 @@ All notable changes to msgvault, grouped by release.
   `[auth] api_key_login = false` hides the API-key login form. API schema
   2.17.0.
 
+- Single sign-on. `[auth.oidc]` signs people in through an OpenID Connect
+  provider (authorization code with PKCE) and maps the provider's groups to
+  roles; the Web UI offers "Sign in with <provider>". The same provider's
+  access tokens authenticate API requests and `msgvault mcp --http`, which now
+  publishes RFC 9728 protected-resource metadata so Claude Code and claude.ai
+  connectors sign in through the provider; tokens need the `msgvault:read`
+  scope and `msgvault:write` for mutations. Sign-ins are recorded in new
+  `users` and `user_identities` tables. `[auth.oidc]`, `[auth] api_key_login`,
+  and `[server] trusted_proxies` accept environment overrides
+  (`MSGVAULT_AUTH_OIDC_*`, `MSGVAULT_AUTH_API_KEY_LOGIN`,
+  `MSGVAULT_SERVER_TRUSTED_PROXIES`) for container deployments.
+
 - Web Directory workspace: browse and search promoted durable people, filter
   by contact state, category, organization, and last contact, and maintain a
   person's profile, custom fields, employment, typed relationships, tracking,

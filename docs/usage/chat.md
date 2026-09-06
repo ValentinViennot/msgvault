@@ -92,6 +92,32 @@ key sees only the tools its role permits: a `viewer` key gets the read tools, a
 `[server].api_key` among them, may call `export_attachment` and
 `stage_deletion`. See [Configuration](/docs/configuration/#auth).
 
+### OAuth sign-in for MCP clients
+
+With `[auth.oidc]` configured in the `msgvault mcp` process's config (issuer,
+group mapping, and `resource` set to the public MCP URL, for example
+`https://mcp.example.com/mcp`), the listener is an OAuth 2.1 resource server:
+it publishes `/.well-known/oauth-protected-resource`, answers unauthenticated
+requests with a `WWW-Authenticate` challenge that points at it, and validates
+the provider's access tokens. MCP clients discover the authorization server
+from that document and sign the user in through the provider; the tools they
+see follow the user's role and the token's `msgvault:read` / `msgvault:write`
+scopes. Register an API resource named by the same URL at the provider with
+those two permissions.
+
+Claude Code connects with a client registered at the provider (a public client
+with PKCE and Claude Code's localhost callback):
+
+```bash
+claude mcp add --transport http msgvault https://mcp.example.com/mcp \
+  --client-id <client id from the provider> --scope user
+```
+
+claude.ai custom connectors take the client ID and secret of a confidential
+client under the connector's advanced settings. Static keys keep working beside
+the provider for clients that cannot run an OAuth flow. Serve the listener over
+HTTPS: the provider's tokens are bearer credentials.
+
 ## Available Tools
 
 The MCP server exposes the following tools to connected AI clients:

@@ -606,10 +606,22 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Create and start API server
 	var apiServer *api.Server
+	oidcProvider, oidcConfigured, err := newOIDCProvider(cfg)
+	if err != nil {
+		return err
+	}
+	if oidcConfigured {
+		logger.Info("identity provider configured",
+			"issuer", cfg.Auth.OIDC.Issuer,
+			"browser_login", oidcProvider.Config().LoginEnabled(),
+			"bearer_tokens", oidcProvider.Config().BearerEnabled())
+	}
 	apiOpts := api.ServerOptions{
 		Config:         cfg,
 		Store:          storeAdapter,
 		SavedViewStore: s,
+		OIDC:           oidcProvider,
+		UserStore:      s,
 		Engine:         engine,
 		SQLQueryRunner: func(ctx context.Context, sql string) (*query.QueryResult, error) {
 			if apiServer == nil {

@@ -65,10 +65,18 @@ Add to Claude Desktop config:
 
 		if mcpHTTPAddr != "" {
 			keys := mcpNamedKeys(cfg)
+			provider, oidcConfigured, err := newOIDCProvider(cfg)
+			if err != nil {
+				return err
+			}
+			tokens := oidcConfigured && provider.Config().BearerEnabled()
+			if oidcConfigured && !tokens {
+				logger.Warn("[auth.oidc] resource is not set; the MCP listener accepts no identity-provider tokens")
+			}
 			normalized, err := normalizeMCPHTTPAddr(
 				mcpHTTPAddr,
 				mcpHTTPAllowInsecure,
-				cfg.Server.APIKey != "" || len(keys) > 0,
+				cfg.Server.APIKey != "" || len(keys) > 0 || tokens,
 			)
 			if err != nil {
 				return usageErr(cmd, err)
@@ -78,6 +86,7 @@ Add to Claude Desktop config:
 				APIKey:      cfg.Server.APIKey,
 				Keys:        keys,
 				AllowWrites: mcpHTTPAllowWrites,
+				OIDC:        provider,
 			})
 		}
 		return mcpserver.ServeWithOptions(ctx, opts)

@@ -5555,6 +5555,17 @@ components:
         - label
         - hop
       type: object
+    OIDCLoginInfo:
+      additionalProperties: true
+      properties:
+        provider_name:
+          type: string
+        start_url:
+          type: string
+      required:
+        - provider_name
+        - start_url
+      type: object
     OperationHealth:
       additionalProperties: true
       properties:
@@ -10213,6 +10224,7 @@ components:
             - loopback
             - api_key
             - session
+            - token
             - required
           type: string
         csrf_token:
@@ -10220,10 +10232,12 @@ components:
         https:
           type: boolean
         login_methods:
-          description: "Available login methods: api_key"
+          description: "Available login methods: api_key, oidc"
           items:
             type: string
           type: array
+        oidc:
+          $ref: "#/components/schemas/OIDCLoginInfo"
         plain_http_warning:
           type: boolean
         principal:
@@ -11947,6 +11961,28 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
           description: Error
       summary: Create an in-memory browser session
+      tags:
+        - Session
+  /api/session/oidc/callback:
+    get:
+      operationId: completeOIDCLogin
+      responses:
+        "302":
+          description: Found
+        default:
+          description: Error
+      summary: Complete an identity-provider login and create a browser session
+      tags:
+        - Session
+  /api/session/oidc/start:
+    get:
+      operationId: startOIDCLogin
+      responses:
+        "302":
+          description: Found
+        default:
+          description: Error
+      summary: Redirect the browser to the identity provider
       tags:
         - Session
   /api/v1/accounts:
