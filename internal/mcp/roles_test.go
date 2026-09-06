@@ -46,6 +46,8 @@ func rawAuthorizedToolNames(t *testing.T, handler http.Handler, authorization st
 }
 
 func TestHTTPNamedKeysGateToolsByRole(t *testing.T) {
+	assert := assert.New(t)
+	require := require.New(t)
 	opts := ServeOptions{Engine: &querytest.MockEngine{}, AttachmentsDir: t.TempDir()}
 	handler := newMCPHTTPServer(opts, HTTPOptions{
 		APIKey:      "admin-secret-value",
@@ -57,31 +59,33 @@ func TestHTTPNamedKeysGateToolsByRole(t *testing.T) {
 	}).Handler
 
 	_, status := rawAuthorizedToolNames(t, handler, "")
-	assert.Equal(t, http.StatusUnauthorized, status)
+	assert.Equal(http.StatusUnauthorized, status)
 	_, status = rawAuthorizedToolNames(t, handler, "Bearer unknown-secret-value")
-	assert.Equal(t, http.StatusUnauthorized, status)
+	assert.Equal(http.StatusUnauthorized, status)
 
 	admin, status := rawAuthorizedToolNames(t, handler, "Bearer admin-secret-value")
-	require.Equal(t, http.StatusOK, status)
-	assert.Contains(t, admin, ToolStageDeletion)
-	assert.Contains(t, admin, ToolExportAttachment)
-	assert.Contains(t, admin, ToolGetStats)
+	require.Equal(http.StatusOK, status)
+	assert.Contains(admin, ToolStageDeletion)
+	assert.Contains(admin, ToolExportAttachment)
+	assert.Contains(admin, ToolGetStats)
 
 	for _, key := range []string{"reader-secret-value", "curator-secret-value"} {
 		names, status := rawAuthorizedToolNames(t, handler, "Bearer "+key)
-		require.Equal(t, http.StatusOK, status)
-		assert.Contains(t, names, ToolGetStats, key)
-		assert.Contains(t, names, ToolSearchMetadata, key)
-		assert.NotContains(t, names, ToolStageDeletion, "%s must not stage deletions", key)
-		assert.NotContains(t, names, ToolExportAttachment, "%s must not write to the server filesystem", key)
+		require.Equal(http.StatusOK, status)
+		assert.Contains(names, ToolGetStats, key)
+		assert.Contains(names, ToolSearchMetadata, key)
+		assert.NotContains(names, ToolStageDeletion, "%s must not stage deletions", key)
+		assert.NotContains(names, ToolExportAttachment, "%s must not write to the server filesystem", key)
 	}
 }
 
 func TestOpenListenerAndStdioServeTheAdministrator(t *testing.T) {
+	assert := assert.New(t)
+	require := require.New(t)
 	opts := ServeOptions{Engine: &querytest.MockEngine{}, AttachmentsDir: t.TempDir()}
 	handler := newMCPHTTPServer(opts, HTTPOptions{AllowWrites: true}).Handler
 	names, status := rawAuthorizedToolNames(t, handler, "")
-	require.Equal(t, http.StatusOK, status)
-	assert.Contains(t, names, ToolStageDeletion, "a listener without credentials keeps today's behaviour")
-	assert.Equal(t, authz.ServerKey(), principalFromContext(t.Context()))
+	require.Equal(http.StatusOK, status)
+	assert.Contains(names, ToolStageDeletion, "a listener without credentials keeps today's behaviour")
+	assert.Equal(authz.ServerKey(), principalFromContext(t.Context()))
 }

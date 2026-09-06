@@ -18,6 +18,8 @@ func loadAuthConfig(t *testing.T, content string) (*Config, error) {
 }
 
 func TestLoadAuthAPIKeys(t *testing.T) {
+	assert := assert.New(t)
+	require := require.New(t)
 	cfg, err := loadAuthConfig(t, `
 [server]
 api_key = "admin-secret-value"
@@ -34,18 +36,18 @@ name = "curator"
 key_env = "MSGVAULT_TEST_CURATOR_KEY"
 role = "Member"
 `)
-	require.NoError(t, err)
-	require.Len(t, cfg.Auth.APIKeys, 2)
-	assert.Equal(t, "reader", cfg.Auth.APIKeys[0].Name)
-	assert.Equal(t, "viewer", cfg.Auth.APIKeys[0].Role, "the default role is the least privileged")
-	assert.Equal(t, "member", cfg.Auth.APIKeys[1].Role, "roles are case-folded")
-	assert.False(t, cfg.Auth.APIKeyLoginEnabled())
+	require.NoError(err)
+	require.Len(cfg.Auth.APIKeys, 2)
+	assert.Equal("reader", cfg.Auth.APIKeys[0].Name)
+	assert.Equal("viewer", cfg.Auth.APIKeys[0].Role, "the default role is the least privileged")
+	assert.Equal("member", cfg.Auth.APIKeys[1].Role, "roles are case-folded")
+	assert.False(cfg.Auth.APIKeyLoginEnabled())
 
 	resolved, warnings := cfg.Auth.ResolveAPIKeys(func(string) string { return "" })
-	require.Len(t, resolved, 1, "an unset key_env disables only that key")
-	assert.Equal(t, ResolvedAPIKey{Name: "reader", Key: "reader-secret-value", Role: authz.RoleViewer}, resolved[0])
-	require.Len(t, warnings, 1)
-	assert.Contains(t, warnings[0], "MSGVAULT_TEST_CURATOR_KEY")
+	require.Len(resolved, 1, "an unset key_env disables only that key")
+	assert.Equal(ResolvedAPIKey{Name: "reader", Key: "reader-secret-value", Role: authz.RoleViewer}, resolved[0])
+	require.Len(warnings, 1)
+	assert.Contains(warnings[0], "MSGVAULT_TEST_CURATOR_KEY")
 
 	resolved, warnings = cfg.Auth.ResolveAPIKeys(func(name string) string {
 		if name == "MSGVAULT_TEST_CURATOR_KEY" {
@@ -53,19 +55,21 @@ role = "Member"
 		}
 		return ""
 	})
-	require.Empty(t, warnings)
-	require.Len(t, resolved, 2)
-	assert.Equal(t, ResolvedAPIKey{Name: "curator", Key: "curator-secret-value", Role: authz.RoleMember}, resolved[1])
+	require.Empty(warnings)
+	require.Len(resolved, 2)
+	assert.Equal(ResolvedAPIKey{Name: "curator", Key: "curator-secret-value", Role: authz.RoleMember}, resolved[1])
 }
 
 func TestAuthDefaultsWithoutSection(t *testing.T) {
+	assert := assert.New(t)
+	require := require.New(t)
 	cfg, err := loadAuthConfig(t, "[server]\napi_key = \"admin-secret-value\"\n")
-	require.NoError(t, err)
-	assert.True(t, cfg.Auth.APIKeyLoginEnabled())
-	assert.Empty(t, cfg.Auth.APIKeys)
+	require.NoError(err)
+	assert.True(cfg.Auth.APIKeyLoginEnabled())
+	assert.Empty(cfg.Auth.APIKeys)
 	resolved, warnings := cfg.Auth.ResolveAPIKeys(nil)
-	assert.Empty(t, resolved)
-	assert.Empty(t, warnings)
+	assert.Empty(resolved)
+	assert.Empty(warnings)
 }
 
 func TestLoadAuthAPIKeysRejectsInvalidEntries(t *testing.T) {
