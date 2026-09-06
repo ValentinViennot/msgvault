@@ -570,17 +570,55 @@ func legacyCalendarOrganizerSelf(
 	return event.Organizer.Self, true
 }
 
-// IsMigrationApplied reports whether the named one-time data migration
-// has already run.
-func (s *Store) IsMigrationApplied(name string) (bool, error) {
-	return s.IsMigrationAppliedContext(context.Background(), name)
+// ensureMigrationLedgerVersionColumn adds the ledger version column before
+// InitSchemaContext issues its first version-aware ledger query.
+func (s *Store) ensureMigrationLedgerVersionColumn(ctx context.Context) error {
+	statement := `ALTER TABLE applied_migrations ADD COLUMN version INTEGER NOT NULL DEFAULT 1`
+	if s.IsPostgreSQL() {
+		statement = `ALTER TABLE applied_migrations ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1`
+	}
+	if _, err := s.db.ExecContext(ctx, statement); err != nil &&
+		!s.dialect.IsDuplicateColumnError(err) {
+		return fmt.Errorf("add migration ledger version: %w", err)
+	}
+	return nil
 }
 
-// IsMigrationAppliedContext is the request-aware form of IsMigrationApplied.
-func (s *Store) IsMigrationAppliedContext(ctx context.Context, name string) (bool, error) {
+const markMigrationAppliedSQL = `
+	INSERT INTO applied_migrations (name, version) VALUES (?, ?)
+	ON CONFLICT (name) DO UPDATE SET
+		version = excluded.version,
+		applied_at = CURRENT_TIMESTAMP
+	WHERE applied_migrations.version < excluded.version`
+
+func (s *Store) markMigrationAppliedContext(
+	ctx context.Context, q contextStatementQuerier, name string, version int,
+) error {
+	_, err := q.ExecContext(ctx, markMigrationAppliedSQL, name, version)
+	if err != nil {
+		return fmt.Errorf("mark migration %q applied: %w", name, err)
+	}
+	return nil
+}
+
+// IsMigrationApplied reports whether the named one-time data migration has
+// reached version 1.
+func (s *Store) IsMigrationApplied(name string) (bool, error) {
+	return s.IsMigrationAppliedContext(context.Background(), name, 1)
+}
+
+// IsMigrationAppliedContext reports whether the named migration has reached
+// the requested positive minimum implementation version.
+func (s *Store) IsMigrationAppliedContext(
+	ctx context.Context, name string, minimumVersion int,
+) (bool, error) {
+	if minimumVersion < 1 {
+		return false, fmt.Errorf("migration version must be positive, got %d", minimumVersion)
+	}
 	var count int
 	err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM applied_migrations WHERE name = ?`, name,
+		`SELECT COUNT(*) FROM applied_migrations WHERE name = ? AND version >= ?`,
+		name, minimumVersion,
 	).Scan(&count)
 	if err != nil {
 		return false, fmt.Errorf("check migration %q: %w", name, err)
@@ -588,20 +626,20 @@ func (s *Store) IsMigrationAppliedContext(ctx context.Context, name string) (boo
 	return count > 0, nil
 }
 
-// MarkMigrationApplied records that a migration has run. Idempotent.
+// MarkMigrationApplied records that version 1 of a migration has run without
+// replacing a higher recorded version.
 func (s *Store) MarkMigrationApplied(name string) error {
-	return s.MarkMigrationAppliedContext(context.Background(), name)
+	return s.MarkMigrationAppliedContext(context.Background(), name, 1)
 }
 
-// MarkMigrationAppliedContext is the request-aware form of
-// MarkMigrationApplied.
-func (s *Store) MarkMigrationAppliedContext(ctx context.Context, name string) error {
-	_, err := s.db.ExecContext(ctx,
-		s.dialect.InsertOrIgnore(`INSERT OR IGNORE INTO applied_migrations (name) VALUES (?)`),
-		name,
-	)
-	if err != nil {
-		return fmt.Errorf("mark migration %q applied: %w", name, err)
+// MarkMigrationAppliedContext records a successfully applied positive migration
+// version. It preserves the highest recorded version and only updates the
+// timestamp when the version increases.
+func (s *Store) MarkMigrationAppliedContext(
+	ctx context.Context, name string, version int,
+) error {
+	if version < 1 {
+		return fmt.Errorf("migration version must be positive, got %d", version)
 	}
-	return nil
+	return s.markMigrationAppliedContext(ctx, s.db, name, version)
 }
