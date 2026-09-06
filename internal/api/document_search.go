@@ -343,6 +343,12 @@ func parseDocumentSearchRequest(r *http.Request) (store.DocumentSearchRequest, e
 	if err != nil {
 		return request, err
 	}
+	if principal := principalFromContext(r.Context()); principal.Scoped() {
+		request.SourceIDs = principal.RestrictSources(request.SourceIDs)
+		if len(request.SourceIDs) == 0 {
+			request.SourceIDs = []int64{-1}
+		}
+	}
 	for _, raw := range r.URL.Query()["message_type"] {
 		for value := range strings.SplitSeq(raw, ",") {
 			request.MessageTypes = append(request.MessageTypes, strings.TrimSpace(value))

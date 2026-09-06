@@ -101,9 +101,12 @@ func mcpNamedKeys(cfg *config.Config) []mcpserver.NamedKey {
 	for _, warning := range warnings {
 		logger.Warn(warning)
 	}
+	if len(resolved) == 0 {
+		return nil
+	}
 	keys := make([]mcpserver.NamedKey, 0, len(resolved))
 	for _, key := range resolved {
-		keys = append(keys, mcpserver.NamedKey{Name: key.Name, Key: key.Key, Role: key.Role})
+		keys = append(keys, mcpserver.NamedKey{Name: key.Name, Key: key.Key, Role: key.Role, User: key.User})
 	}
 	return keys
 }

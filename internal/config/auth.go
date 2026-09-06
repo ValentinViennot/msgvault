@@ -126,6 +126,12 @@ type APIKeyConfig struct {
 	Key    string `toml:"key"`
 	KeyEnv string `toml:"key_env"`
 	Role   string `toml:"role"`
+	// User binds the key to a user's address: the key then sees that user's
+	// sources. A key without a user and without the admin role sees none.
+	User string `toml:"user"`
+	// OnBehalfOf lets an admin key act for a user named in the
+	// X-Msgvault-On-Behalf-Of header; only the MCP sidecar needs it.
+	OnBehalfOf bool `toml:"on_behalf_of"`
 }
 
 // ApplyDefaults trims names and gives keys without a role the least privilege.
@@ -136,6 +142,7 @@ func (a *AuthConfig) ApplyDefaults() {
 		a.APIKeys[i].Name = strings.TrimSpace(a.APIKeys[i].Name)
 		a.APIKeys[i].KeyEnv = strings.TrimSpace(a.APIKeys[i].KeyEnv)
 		a.APIKeys[i].Role = strings.ToLower(strings.TrimSpace(a.APIKeys[i].Role))
+		a.APIKeys[i].User = strings.ToLower(strings.TrimSpace(a.APIKeys[i].User))
 		if a.APIKeys[i].Role == "" {
 			a.APIKeys[i].Role = string(authz.RoleViewer)
 		}
@@ -166,6 +173,12 @@ func (a *AuthConfig) Validate() error {
 		if _, err := authz.ParseRole(key.Role); err != nil {
 			return fmt.Errorf("%s: %w", label, err)
 		}
+		if key.OnBehalfOf && key.Role != string(authz.RoleAdmin) {
+			return fmt.Errorf("%s: on_behalf_of requires role = \"admin\"", label)
+		}
+		if key.OnBehalfOf && key.User != "" {
+			return fmt.Errorf("%s: on_behalf_of and user are mutually exclusive", label)
+		}
 	}
 	if a.OIDC.Enabled() {
 		if a.OIDC.ClientSecret != "" && a.OIDC.ClientSecretEnv != "" {
@@ -190,9 +203,11 @@ func (a *AuthConfig) APIKeyLoginEnabled() bool {
 // ResolvedAPIKey is a named key whose secret has been read from config or the
 // environment.
 type ResolvedAPIKey struct {
-	Name string
-	Key  string
-	Role authz.Role
+	Name       string
+	Key        string
+	Role       authz.Role
+	User       string
+	OnBehalfOf bool
 }
 
 // ResolveAPIKeys returns the usable named keys. An entry whose key_env is
@@ -218,7 +233,7 @@ func (a *AuthConfig) ResolveAPIKeys(lookupEnv func(string) string) ([]ResolvedAP
 		if err != nil {
 			role = authz.RoleViewer
 		}
-		resolved = append(resolved, ResolvedAPIKey{Name: key.Name, Key: secret, Role: role})
+		resolved = append(resolved, ResolvedAPIKey{Name: key.Name, Key: secret, Role: role, User: key.User, OnBehalfOf: key.OnBehalfOf})
 	}
 	return resolved, warnings
 }

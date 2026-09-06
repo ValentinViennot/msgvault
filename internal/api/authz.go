@@ -15,10 +15,13 @@ import (
 // TestEveryAPIV1OperationIsClassified keeps this table complete: a new route
 // without an entry fails closed at runtime and fails that test.
 var operationMinimumRole = map[string]authz.Role{
-	// System, health, identity of the caller.
-	"getHealth": authz.RoleViewer,
-	"getMe":     authz.RoleViewer,
-	"getStats":  authz.RoleViewer,
+	// System, health, identity of the caller, user administration.
+	"getHealth":      authz.RoleViewer,
+	"getMe":          authz.RoleViewer,
+	"getStats":       authz.RoleViewer,
+	"listUsers":      authz.RoleAdmin,
+	"patchUser":      authz.RoleAdmin,
+	"setUserSources": authz.RoleAdmin,
 
 	// Sync scheduling and account registration.
 	"listAccounts":         authz.RoleViewer,

@@ -12,6 +12,7 @@ import (
 
 	"github.com/doordash-oss/oapi-codegen-dd/v3/pkg/runtime"
 	"go.kenn.io/msgvault/internal/apiprotocol"
+	"go.kenn.io/msgvault/internal/authz"
 	apiclient "go.kenn.io/msgvault/pkg/client"
 	"go.kenn.io/msgvault/pkg/client/generated"
 	"go.opentelemetry.io/otel/propagation"
@@ -341,6 +342,9 @@ func requestEditor(apiKey string, mode RequestMode, localDaemonToken string) api
 	return func(ctx context.Context, req *http.Request) error {
 		if apiKey != "" {
 			req.Header.Set("X-Api-Key", apiKey)
+		}
+		if acting := authz.ActingUser(ctx); acting != "" {
+			req.Header.Set(authz.ActingUserHeader, acting)
 		}
 		if mode == RequestModeCLI {
 			req.Header.Set(apiprotocol.ClientClassHeader, apiprotocol.ClientClassCLI)

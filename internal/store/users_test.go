@@ -89,3 +89,46 @@ func TestSetUserDisabledAndGetUser(t *testing.T) {
 	require.ErrorIs(err, store.ErrUserNotFound)
 	require.ErrorIs(st.SetUserDisabled(ctx, 424242, false), store.ErrUserNotFound)
 }
+
+func TestUserSourcesBinding(t *testing.T) {
+	require := require.New(t)
+	assert := assert.New(t)
+	st := testutil.NewTestStore(t)
+	ctx := t.Context()
+	one, err := st.GetOrCreateSource("gmail", "one@example.com")
+	require.NoError(err)
+	two, err := st.GetOrCreateSource("gmail", "two@example.com")
+	require.NoError(err)
+	alice, err := st.RecordUserLogin(ctx, store.UserLogin{Issuer: "i", Subject: "alice", Email: "alice@example.com", Role: "member"})
+	require.NoError(err)
+
+	none, err := st.ListUserSourceIDs(ctx, alice.ID)
+	require.NoError(err)
+	assert.NotNil(none, "an unbound user gets an empty, fail-closed scope")
+	assert.Empty(none)
+
+	require.NoError(st.SetUserSources(ctx, alice.ID, []int64{two.ID, one.ID, one.ID}))
+	bound, err := st.ListUserSourceIDs(ctx, alice.ID)
+	require.NoError(err)
+	assert.Equal([]int64{one.ID, two.ID}, bound, "bindings are unique and ordered")
+
+	require.ErrorIs(st.SetUserSources(ctx, alice.ID, []int64{one.ID, 424242}), store.ErrSourceNotFound)
+	still, err := st.ListUserSourceIDs(ctx, alice.ID)
+	require.NoError(err)
+	assert.Equal([]int64{one.ID, two.ID}, still, "a failed replacement leaves the bindings untouched")
+
+	require.NoError(st.SetUserSources(ctx, alice.ID, nil))
+	cleared, err := st.ListUserSourceIDs(ctx, alice.ID)
+	require.NoError(err)
+	assert.Empty(cleared)
+	require.ErrorIs(st.SetUserSources(ctx, 424242, nil), store.ErrUserNotFound)
+
+	byEmail, err := st.GetUserByEmail(ctx, "ALICE@example.com")
+	require.NoError(err)
+	assert.Equal(alice.ID, byEmail.ID)
+	byIdentity, err := st.GetUserByIdentity(ctx, "i", "alice")
+	require.NoError(err)
+	assert.Equal(alice.ID, byIdentity.ID)
+	_, err = st.GetUserByIdentity(ctx, "i", "nobody")
+	require.ErrorIs(err, store.ErrUserNotFound)
+}

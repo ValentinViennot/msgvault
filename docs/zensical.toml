@@ -19,6 +19,7 @@ nav = [
   {"Configuration" = "configuration.md"},
   {"CLI Reference" = "cli-reference.md"},
   {"MCP Server" = "usage/chat.md"},
+  {"Users and Visible Sources" = "usage/users.md"},
   {"Web UI & API Server" = "api-server.md"},
   {"Changelog" = "changelog.md"},
   {"CLI Usage" = [

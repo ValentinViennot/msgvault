@@ -636,6 +636,11 @@ func (s *Server) handleListMessages(w http.ResponseWriter, r *http.Request) {
 
 	offset := (page - 1) * pageSize
 
+	if principal := s.requestPrincipal(r); principal.Scoped() {
+		s.handleListMessagesScoped(w, r, page, pageSize, offset)
+		return
+	}
+
 	messages, total, err := s.listMessages(r.Context(), offset, pageSize)
 	if err != nil {
 		if s.writeIfContextError(w, err) {
@@ -691,6 +696,10 @@ func (s *Server) handleGetMessage(w http.ResponseWriter, r *http.Request) {
 
 	if s.store == nil {
 		writeError(w, http.StatusServiceUnavailable, "store_unavailable", "Database not available")
+		return
+	}
+	if s.requestPrincipal(r).Scoped() {
+		writeError(w, http.StatusServiceUnavailable, "scope_unavailable", "Scoped access needs the analytics engine")
 		return
 	}
 
@@ -779,6 +788,14 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		parsedQuery.AccountIDs = append(parsedQuery.AccountIDs, sourceIDs...)
+	}
+	if principal := s.requestPrincipal(r); principal.Scoped() {
+		parsedQuery.AccountIDs = principal.RestrictSources(parsedQuery.AccountIDs)
+		if len(parsedQuery.AccountIDs) == 0 {
+			// The store treats an empty account list as "no filter".
+			writeJSON(w, http.StatusOK, SearchResult{Query: searchText, Total: 0, Page: 1, PageSize: 20, Messages: []MessageSummary{}})
+			return
+		}
 	}
 
 	if mode == "vector" || mode == exploreSearchModeHybrid {
@@ -1303,6 +1320,12 @@ func (s *Server) similarSearchFilter(r *http.Request) (vector.Filter, *apiHTTPEr
 		}
 		filter.SourceIDs = scope.sourceIDs()
 	}
+	if principal := s.requestPrincipal(r); principal.Scoped() {
+		filter.SourceIDs = principal.RestrictSources(filter.SourceIDs)
+		if len(filter.SourceIDs) == 0 {
+			filter.SourceIDs = []int64{-1}
+		}
+	}
 	if messageType := strings.TrimSpace(r.URL.Query().Get("message_type")); messageType != "" {
 		filter.MessageTypes = []string{strings.ToLower(messageType)}
 	}
@@ -1432,8 +1455,12 @@ func (s *Server) handleSourceStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	principal := s.requestPrincipal(r)
 	statuses := make([]SourceStatus, 0, len(sources))
 	for _, source := range sources {
+		if !principal.Sees(source.ID) {
+			continue
+		}
 		status, err := s.sourceStatus(statusStore, source)
 		if err != nil {
 			s.logger.Error("failed to build source sync status",
@@ -3888,6 +3915,9 @@ func (s *Server) handleTextConversations(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		s.logger.Error("text conversations query failed", "error", err)
+		if writeScopeError(w, err) {
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "internal_error", "Text conversations query failed")
 		return
 	}
@@ -3940,6 +3970,9 @@ func (s *Server) handleTextAggregates(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.logger.Error("text aggregate query failed", "view_type", viewTypeStr, "error", err)
+		if writeScopeError(w, err) {
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "internal_error", "Text aggregate query failed")
 		return
 	}
@@ -3995,6 +4028,9 @@ func (s *Server) handleTextConversationMessages(w http.ResponseWriter, r *http.R
 			return
 		}
 		s.logger.Error("text conversation messages query failed", "conversation_id", conversationID, "error", err)
+		if writeScopeError(w, err) {
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "internal_error", "Text conversation messages query failed")
 		return
 	}
@@ -4055,6 +4091,9 @@ func (s *Server) handleTextSearch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.logger.Error("text search failed", "query", queryStr, "error", err)
+		if writeScopeError(w, err) {
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "internal_error", "Text search failed")
 		return
 	}
@@ -4097,6 +4136,9 @@ func (s *Server) handleTextStats(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.logger.Error("text stats query failed", "error", err)
+		if writeScopeError(w, err) {
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "internal_error", "Text stats query failed")
 		return
 	}

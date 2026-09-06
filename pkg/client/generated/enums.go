@@ -2100,6 +2100,24 @@ func (t TaskIntegrationStatusResponseState) Validate() error {
 	}
 }
 
+type UserSummaryRole string
+
+const (
+	UserSummaryRoleAdmin  UserSummaryRole = "admin"
+	UserSummaryRoleMember UserSummaryRole = "member"
+	UserSummaryRoleViewer UserSummaryRole = "viewer"
+)
+
+// Validate checks if the UserSummaryRole value is valid
+func (u UserSummaryRole) Validate() error {
+	switch u {
+	case UserSummaryRoleAdmin, UserSummaryRoleMember, UserSummaryRoleViewer:
+		return nil
+	default:
+		return runtime.NewValidationErrorsFromString("Enum", fmt.Sprintf("must be a valid UserSummaryRole value, got: %v", u))
+	}
+}
+
 type ListOperationRunsQueryKind string
 
 const (

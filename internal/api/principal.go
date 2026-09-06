@@ -10,9 +10,11 @@ import (
 // namedAPIKey is one resolved [[auth.api_keys]] credential. Only the digest
 // is kept so a memory dump of the daemon does not hand out the secrets.
 type namedAPIKey struct {
-	name   string
-	digest [sha256.Size]byte
-	role   authz.Role
+	name       string
+	digest     [sha256.Size]byte
+	role       authz.Role
+	user       string
+	onBehalfOf bool
 }
 
 // loadNamedAPIKeys resolves the configured named keys once at construction.
@@ -45,7 +47,7 @@ func (s *Server) loadNamedAPIKeys() {
 		if duplicate {
 			continue
 		}
-		keys = append(keys, namedAPIKey{name: key.Name, digest: digest, role: key.Role})
+		keys = append(keys, namedAPIKey{name: key.Name, digest: digest, role: key.Role, user: key.User, onBehalfOf: key.OnBehalfOf})
 	}
 	s.namedKeys = keys
 }
@@ -60,17 +62,24 @@ func (s *Server) warn(message string) {
 // administrator; named keys carry their configured role. Every comparison is
 // constant-time.
 func (s *Server) principalForAPIKey(credential string) (authz.Principal, bool) {
+	principal, _, ok := s.keyPrincipal(credential)
+	return principal, ok
+}
+
+// keyPrincipal resolves a bearer credential and reports whether the key may
+// act on behalf of a user.
+func (s *Server) keyPrincipal(credential string) (authz.Principal, bool, bool) {
 	if credential == "" {
-		return authz.Principal{}, false
+		return authz.Principal{}, false, false
 	}
 	if s.cfg.Server.APIKey != "" && constantTimeAPIKeyEqual(credential, s.cfg.Server.APIKey) {
-		return authz.ServerKey(), true
+		return authz.ServerKey(), false, true
 	}
 	supplied := sha256.Sum256([]byte(credential))
 	for _, key := range s.namedKeys {
 		if subtle.ConstantTimeCompare(key.digest[:], supplied[:]) == 1 {
-			return authz.Principal{Kind: authz.PrincipalAPIKey, Name: key.name, Role: key.role}, true
+			return authz.Principal{Kind: authz.PrincipalAPIKey, Name: key.name, Role: key.role, Email: key.user}, key.onBehalfOf, true
 		}
 	}
-	return authz.Principal{}, false
+	return authz.Principal{}, false, false
 }

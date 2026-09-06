@@ -30,6 +30,7 @@
   } from '../../api/generated/models';
   import type { CardDAVSettingsRequest } from '../../carddav/navigation';
   import CardDAVSettingsWorkspace from './CardDAVSettingsWorkspace.svelte';
+  import UsersWorkspace from './UsersWorkspace.svelte';
   import PersonEnrichmentProviderCard from './PersonEnrichmentProviderCard.svelte';
   import PersonEnrichmentProviderCreator from './PersonEnrichmentProviderCreator.svelte';
   import ProviderCredentialControl from './ProviderCredentialControl.svelte';
@@ -95,6 +96,9 @@
       label: 'CardDAV account',
       summary: 'Address-book connection',
     },
+    ...(principal?.role === 'admin'
+      ? [{ id: 'users', label: 'Users', summary: 'Who sees which sources' }]
+      : []),
   ]);
   onMount(() => {
     void loadSettings(false);
@@ -329,7 +333,7 @@
       {categories}
       bind:active={activeCategory}
       title="Settings"
-      footer={activeCategory === 'carddav' ? undefined : settingsFooter}
+      footer={activeCategory === 'carddav' || activeCategory === 'users' ? undefined : settingsFooter}
     >
       {#snippet panel(activeId)}
         <div class="notices">
@@ -354,7 +358,9 @@
           {#if pendingRestart}<p class="pending" role="status">Changes are pending restart.</p>{/if}
         </div>
 
-        {#if activeId === 'carddav'}
+        {#if activeId === 'users'}
+          <UsersWorkspace {client} />
+        {:else if activeId === 'carddav'}
           <CardDAVSettingsWorkspace
             {client}
             {settings}

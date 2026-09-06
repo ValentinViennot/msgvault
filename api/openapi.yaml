@@ -11656,6 +11656,66 @@ components:
         - total_tokens
         - available
       type: object
+    UserListResponse:
+      additionalProperties: true
+      properties:
+        users:
+          items:
+            $ref: "#/components/schemas/UserSummary"
+          type: array
+      required:
+        - users
+      type: object
+    UserPatchRequest:
+      additionalProperties: false
+      properties:
+        disabled:
+          type: boolean
+      type: object
+    UserSourcesRequest:
+      additionalProperties: false
+      properties:
+        source_ids:
+          items:
+            format: int64
+            type: integer
+          type: array
+      required:
+        - source_ids
+      type: object
+    UserSummary:
+      additionalProperties: true
+      properties:
+        disabled:
+          type: boolean
+        display_name:
+          type: string
+        email:
+          type: string
+        id:
+          format: int64
+          type: integer
+        last_login_at:
+          format: date-time
+          type: string
+        role:
+          enum:
+            - viewer
+            - member
+            - admin
+          type: string
+        source_ids:
+          items:
+            format: int64
+            type: integer
+          type: array
+      required:
+        - id
+        - email
+        - role
+        - disabled
+        - source_ids
+      type: object
     VCardIdentity:
       additionalProperties: false
       properties:
@@ -24333,6 +24393,97 @@ paths:
       security:
         - apiKey: []
       summary: Get text message totals
+      tags:
+        - API
+  /api/v1/users:
+    get:
+      operationId: listUsers
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserListResponse"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Error
+      security:
+        - apiKey: []
+      summary: List users and their visible sources
+      tags:
+        - API
+  /api/v1/users/{id}:
+    patch:
+      operationId: patchUser
+      parameters:
+        - description: id
+          in: path
+          name: id
+          required: true
+          schema:
+            format: int64
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserPatchRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserSummary"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Error
+      security:
+        - apiKey: []
+      summary: Disable or re-enable a user
+      tags:
+        - API
+  /api/v1/users/{id}/sources:
+    put:
+      operationId: setUserSources
+      parameters:
+        - description: id
+          in: path
+          name: id
+          required: true
+          schema:
+            format: int64
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserSourcesRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserSummary"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Error
+      security:
+        - apiKey: []
+      summary: Replace the sources a user may read
       tags:
         - API
   /health:

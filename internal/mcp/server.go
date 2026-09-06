@@ -106,11 +106,14 @@ type HTTPOptions struct {
 	OIDC *oidc.Provider
 }
 
-// NamedKey is one named bearer credential the HTTP listener accepts.
+// NamedKey is one named bearer credential the HTTP listener accepts. A key
+// bound to a user runs every request on that user's behalf, so the daemon
+// applies the user's visible sources.
 type NamedKey struct {
 	Name string
 	Key  string
 	Role authz.Role
+	User string
 }
 
 func officialToolHandler(
@@ -463,7 +466,7 @@ func bearerAuthHandler(apiKey string, keys []NamedKey, provider *oidc.Provider, 
 		}
 		credentials = append(credentials, bearerCredential{
 			digest:    sha256.Sum256([]byte(key.Key)),
-			principal: authz.Principal{Kind: authz.PrincipalAPIKey, Name: key.Name, Role: key.Role},
+			principal: authz.Principal{Kind: authz.PrincipalAPIKey, Name: key.Name, Role: key.Role, Email: key.User},
 		})
 	}
 	tokensEnabled := provider != nil && provider.Config().BearerEnabled()
@@ -515,6 +518,11 @@ func bearerAuthHandler(apiKey string, keys []NamedKey, provider *oidc.Provider, 
 			return
 		}
 		ctx := context.WithValue(r.Context(), grantContextKey{}, grant)
+		// A user, or a key bound to one, acts as that user at the daemon;
+		// the local operator and unbound keys keep the daemon's own view.
+		if grant.principal.Kind == authz.PrincipalUser || grant.principal.Email != "" {
+			ctx = authz.WithActingUser(ctx, grant.principal.Email)
+		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

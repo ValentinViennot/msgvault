@@ -1875,6 +1875,14 @@ CREATE TABLE IF NOT EXISTS user_identities (
 );
 CREATE INDEX IF NOT EXISTS idx_user_identities_user ON user_identities(user_id);
 
+CREATE TABLE IF NOT EXISTS user_sources (
+    user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    source_id  BIGINT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, source_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_sources_source ON user_sources(source_id);
+
 -- Confirmed per-account "me" identities used by sent-message detection
 -- in dedup. Identity is account-scoped: an address confirmed for one
 -- source does not imply it is "me" in any other source.
