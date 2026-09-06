@@ -191,3 +191,39 @@ func TestAuthEnvOverrides(t *testing.T) {
 	_, err = loadAuthConfig(t, "[server]\napi_key = \"admin-secret-value\"\n")
 	require.Error(err, "overrides go through the same validation as the file")
 }
+
+func TestAuthEnvOverridesDeclareKeysAndRemote(t *testing.T) {
+	require := require.New(t)
+	assert := assert.New(t)
+	for _, name := range AuthEnvOverrideNames() {
+		t.Setenv(name, "")
+	}
+	t.Setenv("MSGVAULT_AUTH_API_KEYS", `[{"name":"sidecar","key_env":"MSGVAULT_TEST_SIDECAR_KEY","role":"admin"},{"name":"reader","key":"reader-secret-value"}]`)
+	t.Setenv("MSGVAULT_TEST_SIDECAR_KEY", "sidecar-secret-value")
+	t.Setenv("MSGVAULT_REMOTE_URL", "http://daemon:8080")
+	t.Setenv("MSGVAULT_REMOTE_API_KEY", "remote-secret-value")
+	t.Setenv("MSGVAULT_REMOTE_ALLOW_INSECURE", "true")
+
+	cfg, err := loadAuthConfig(t, "[server]\napi_key = \"admin-secret-value\"\n[[auth.api_keys]]\nname = \"file\"\nkey = \"file-secret-value\"\n")
+	require.NoError(err)
+	require.Len(cfg.Auth.APIKeys, 3, "environment keys are appended to the file's")
+	resolved, warnings := cfg.Auth.ResolveAPIKeys(nil)
+	require.Empty(warnings)
+	assert.Equal("sidecar", resolved[1].Name)
+	assert.Equal("sidecar-secret-value", resolved[1].Key)
+	assert.Equal(authz.RoleAdmin, resolved[1].Role)
+	assert.Equal(authz.RoleViewer, resolved[2].Role, "the default role applies to environment keys too")
+	assert.Equal("http://daemon:8080", cfg.Remote.URL)
+	assert.Equal("remote-secret-value", cfg.Remote.APIKey)
+	assert.True(cfg.Remote.AllowInsecure)
+
+	t.Setenv("MSGVAULT_AUTH_API_KEYS", `[{"name":"file","key":"x"}]`)
+	_, err = loadAuthConfig(t, "[[auth.api_keys]]\nname = \"file\"\nkey = \"file-secret-value\"\n")
+	require.Error(err, "a name used in both the file and the environment is a duplicate")
+	t.Setenv("MSGVAULT_AUTH_API_KEYS", `{"name":"x"}`)
+	_, err = loadAuthConfig(t, "")
+	require.ErrorIs(err, ErrAuthEnvAPIKeys)
+	t.Setenv("MSGVAULT_AUTH_API_KEYS", `[{"name":"x","key":"y","surprise":1}]`)
+	_, err = loadAuthConfig(t, "")
+	require.ErrorIs(err, ErrAuthEnvAPIKeys)
+}
