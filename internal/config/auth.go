@@ -22,10 +22,10 @@ type AuthConfig struct {
 // supplies the secret; KeyEnv names an environment variable so the secret can
 // stay out of config.toml.
 type APIKeyConfig struct {
-	Name   string `toml:"name"`
-	Key    string `toml:"key"`
-	KeyEnv string `toml:"key_env"`
-	Role   string `toml:"role"`
+	Name   string `toml:"name" json:"name"`
+	Key    string `toml:"key" json:"key,omitempty"`
+	KeyEnv string `toml:"key_env" json:"key_env,omitempty"`
+	Role   string `toml:"role" json:"role,omitempty"`
 }
 
 // ApplyDefaults trims names and gives keys without a role the least privilege.
