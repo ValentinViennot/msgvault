@@ -25,6 +25,11 @@ const (
 	toolSecurityRead toolSecurityClass = iota
 	toolSecurityWrite
 	toolSecurityProfileWrite
+	// toolSecurityMailboxWrite covers tools that change state at the mail
+	// provider rather than in the local archive. It is separate from
+	// toolSecurityWrite because stdio hardcodes write access on, and a tool
+	// that reaches the user's live mailbox must not inherit that.
+	toolSecurityMailboxWrite
 )
 
 type catalogCapabilities struct {
@@ -142,6 +147,7 @@ func operationCatalog(opts ServeOptions, _ *handlers) []toolDefinition {
 func buildOperationCatalog(capabilities catalogCapabilities) []toolDefinition {
 	definitions := []toolDefinition{
 		aggregateDefinition(nil),
+		archiveFromInboxDefinition(nil),
 		exportAttachmentDefinition(nil),
 		findSimilarMessagesDefinition(nil),
 		getAttachmentDefinition(nil),
@@ -212,6 +218,20 @@ func writeDefinition(
 	}
 }
 
+// mailboxWriteDefinition builds a tool that changes the user's mailbox at the
+// provider. It is registered only when the operator has opted in twice: once
+// for writes generally and once for mailbox writes specifically.
+func mailboxWriteDefinition(
+	name, description string,
+	inputSchema, outputSchema *jsonschema.Schema,
+	handler catalogToolHandler,
+) toolDefinition {
+	definition := writeDefinition(name, description, inputSchema, outputSchema, handler)
+	definition.annotations = mailboxWriteAnnotations()
+	definition.security = toolSecurityMailboxWrite
+	return definition
+}
+
 func profileWriteDefinition(
 	name, description string,
 	inputSchema, outputSchema *jsonschema.Schema,
@@ -236,6 +256,28 @@ func toolAnnotations(readOnly bool) *sdkmcp.ToolAnnotations {
 		DestructiveHint: &falseValue,
 		OpenWorldHint:   &falseValue,
 		ReadOnlyHint:    readOnly,
+	}
+}
+
+// mailboxWriteAnnotations describes a tool that acts on the user's live
+// mailbox. Every other tool in this catalog reports destructiveHint:false and
+// openWorldHint:false, which is how a client tells them apart from this one.
+//
+//   - openWorldHint is literally true: this is the only tool that reaches a
+//     system outside the local archive.
+//   - destructiveHint is set even though archiving is reversible. The hint asks
+//     whether updates are additive, and removing a message from the inbox is
+//     not; it is also the hint clients gate their confirmation UI on, and this
+//     tool should always be confirmed.
+//   - idempotentHint is true: a message that has already left the inbox is
+//     unaffected by archiving it again.
+func mailboxWriteAnnotations() *sdkmcp.ToolAnnotations {
+	trueValue := true
+	return &sdkmcp.ToolAnnotations{
+		DestructiveHint: &trueValue,
+		IdempotentHint:  true,
+		OpenWorldHint:   &trueValue,
+		ReadOnlyHint:    false,
 	}
 }
 

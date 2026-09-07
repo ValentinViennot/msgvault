@@ -136,6 +136,7 @@ type handlers struct {
 	documentSearcher   DocumentSearcher
 	personFileSearcher PersonFileSearcher
 	peopleBackend      peoplebrowser.Backend
+	inboxArchiver      InboxArchiver
 
 	// Optional vector-search wiring. When hybridEngine is nil, the
 	// search_message_bodies handler rejects mode=vector and mode=hybrid with
@@ -2130,152 +2131,196 @@ func stringArrayArg(args map[string]any, key string) ([]string, error) {
 // maxStageDeletionResults limits how many messages can be staged in one call.
 const maxStageDeletionResults = 100000
 
-func (h *handlers) stageDeletion(ctx context.Context, req toolRequest) (*toolResult, error) {
-	args := req.GetArguments()
+// selectionFilters records the structured filters a selection was built from,
+// so a caller can echo them back without re-parsing the arguments.
+type selectionFilters struct {
+	from          string
+	domain        string
+	label         string
+	after         *time.Time
+	before        *time.Time
+	hasAttachment bool
+}
 
-	// Look up account filter
+// mutationSelection is a resolved set of messages a tool is about to act on.
+type mutationSelection struct {
+	targets     []query.DeletionTarget
+	description string
+	filters     selectionFilters
+}
+
+// resolveMutationTargets turns the shared selector arguments -- a Gmail-style
+// query XOR structured filters, optionally scoped to one account -- into the
+// messages they name.
+//
+// stage_deletion and archive_from_inbox both act on a set of messages the user
+// described in the same vocabulary, and the cost of letting those two
+// resolutions drift is that a plan shown for one operation stops predicting the
+// other. They share this.
+//
+// A non-nil toolResult means the caller's arguments were at fault and should be
+// returned verbatim; a non-nil error is ours.
+func (h *handlers) resolveMutationTargets(
+	ctx context.Context,
+	args map[string]any,
+	limit int,
+	operation string,
+) (*mutationSelection, *toolResult, error) {
 	account, _ := args[toolArgAccount].(string)
 	sourceID, err := h.getAccountID(ctx, account)
 	if err != nil {
-		return dependencyError("resolve deletion account", err)
+		result, resultErr := dependencyError("resolve "+operation+" account", err)
+		return nil, result, resultErr
 	}
 
-	// Check for query vs structured filters
 	queryStr, _ := args[toolArgQuery].(string)
 	queryStr = strings.TrimSpace(queryStr)
 	hasQuery := queryStr != ""
 
-	// Check for any structured filter
-	fromStr, _ := args[toolArgFrom].(string)
-	domainStr, _ := args["domain"].(string)
-	labelStr, _ := args["label"].(string)
-	hasAttachment, _ := args["has_attachment"].(bool)
-	afterDate, err := getDateArg(args, toolArgAfter)
+	filters := selectionFilters{}
+	filters.from, _ = args[toolArgFrom].(string)
+	filters.domain, _ = args["domain"].(string)
+	filters.label, _ = args["label"].(string)
+	filters.hasAttachment, _ = args["has_attachment"].(bool)
+	filters.after, err = getDateArg(args, toolArgAfter)
 	if err != nil {
-		return toolErrorResult(err.Error()), nil
+		return nil, toolErrorResult(err.Error()), nil
 	}
-	beforeDate, err := getDateArg(args, toolArgBefore)
+	filters.before, err = getDateArg(args, toolArgBefore)
 	if err != nil {
-		return toolErrorResult(err.Error()), nil
+		return nil, toolErrorResult(err.Error()), nil
 	}
 
-	hasStructuredFilter := fromStr != "" || domainStr != "" || labelStr != "" ||
-		hasAttachment || afterDate != nil || beforeDate != nil
+	hasStructuredFilter := filters.from != "" || filters.domain != "" ||
+		filters.label != "" || filters.hasAttachment ||
+		filters.after != nil || filters.before != nil
 
-	// Validate: must have either query or structured filters, but not both
 	if hasQuery && hasStructuredFilter {
-		return toolErrorResult("use either 'query' or structured filters (from, domain, label, etc.), not both"), nil
+		return nil, toolErrorResult(
+			"use either 'query' or structured filters (from, domain, label, etc.), not both"), nil
 	}
 	if !hasQuery && !hasStructuredFilter {
-		return toolErrorResult("must provide either 'query' or at least one filter (from, domain, label, after, before, has_attachment)"), nil
+		return nil, toolErrorResult(
+			"must provide either 'query' or at least one filter (from, domain, label, after, before, has_attachment)"), nil
 	}
 
 	accounts, err := h.engine.ListAccounts(ctx)
 	if err != nil {
-		return dependencyError("list deletion sources", err)
+		result, resultErr := dependencyError("list "+operation+" sources", err)
+		return nil, result, resultErr
 	}
 	accountsByID := make(map[int64]query.AccountInfo, len(accounts))
 	for _, info := range accounts {
 		accountsByID[info.ID] = info
 	}
 
-	var targets []query.DeletionTarget
-	var description string
+	selection := &mutationSelection{filters: filters}
 
 	if hasQuery {
-		// Query-based search
 		q := search.Parse(queryStr)
 		if err := q.Err(); err != nil {
-			return toolErrorResult(err.Error()), nil
+			return nil, toolErrorResult(err.Error()), nil
 		}
 		if q.IsEmpty() {
-			return toolErrorResult("query must contain at least one search term or filter"), nil
+			return nil, toolErrorResult("query must contain at least one search term or filter"), nil
 		}
 		if sourceID != nil {
 			q.AccountIDs = []int64{*sourceID}
 		}
 
-		// Try fast search first
 		filter := query.MessageFilter{SourceID: sourceID}
-		results, err := h.engine.SearchFast(ctx, q, filter, maxStageDeletionResults, 0)
+		results, err := h.engine.SearchFast(ctx, q, filter, limit, 0)
 		if err != nil {
-			return nil, newInternalError("search messages for deletion", err)
+			return nil, nil, newInternalError("search messages for "+operation, err)
 		}
 
-		// Fall back to FTS if no results and query has text terms
+		// Fall back to FTS if no results and query has text terms.
 		if len(results) == 0 && len(q.TextTerms) > 0 {
-			results, err = h.engine.Search(ctx, q, maxStageDeletionResults, 0)
+			results, err = h.engine.Search(ctx, q, limit, 0)
 			if err != nil {
-				return nil, newInternalError("fallback search messages for deletion", err)
+				return nil, nil, newInternalError("fallback search messages for "+operation, err)
 			}
 		}
 
 		for _, msg := range results {
 			if msg.SourceID <= 0 {
-				return toolErrorResult(fmt.Sprintf("selected message %d has no source metadata", msg.ID)), nil
+				return nil, toolErrorResult(
+					fmt.Sprintf("selected message %d has no source metadata", msg.ID)), nil
 			}
 			info, ok := accountsByID[msg.SourceID]
 			if !ok {
-				return toolErrorResult(fmt.Sprintf("selected message %d has no source metadata", msg.ID)), nil
+				return nil, toolErrorResult(
+					fmt.Sprintf("selected message %d has no source metadata", msg.ID)), nil
 			}
 			if strings.TrimSpace(info.SourceType) == "" || strings.TrimSpace(info.Identifier) == "" {
-				return toolErrorResult(fmt.Sprintf("selected message %d has incomplete source metadata", msg.ID)), nil
+				return nil, toolErrorResult(
+					fmt.Sprintf("selected message %d has incomplete source metadata", msg.ID)), nil
 			}
-			targets = append(targets, query.DeletionTarget{
+			selection.targets = append(selection.targets, query.DeletionTarget{
 				MessageID: msg.ID, SourceID: msg.SourceID, SourceType: info.SourceType,
 				SourceIdentifier: info.Identifier, SourceMessageID: msg.SourceMessageID,
 			})
 		}
-		description = "query: " + queryStr
-		if len(description) > 50 {
-			description = description[:50]
-		}
-	} else {
-		// Structured filter
-		filter := query.MessageFilter{
-			SourceID:            sourceID,
-			Sender:              fromStr,
-			Domain:              domainStr,
-			Label:               labelStr,
-			WithAttachmentsOnly: hasAttachment,
-			After:               afterDate,
-			Before:              beforeDate,
-			Pagination: query.Pagination{
-				Limit: maxStageDeletionResults,
-			},
-		}
-
-		var err error
-		targets, err = h.engine.GetDeletionTargetsByFilter(ctx, filter)
-		if err != nil {
-			return nil, newInternalError("filter messages for deletion", err)
-		}
-
-		// Build description from filters
-		var parts []string
-		if fromStr != "" {
-			parts = append(parts, "from:"+fromStr)
-		}
-		if domainStr != "" {
-			parts = append(parts, "domain:"+domainStr)
-		}
-		if labelStr != "" {
-			parts = append(parts, "label:"+labelStr)
-		}
-		if hasAttachment {
-			parts = append(parts, "has:attachment")
-		}
-		if afterDate != nil {
-			parts = append(parts, "after:"+afterDate.Format("2006-01-02"))
-		}
-		if beforeDate != nil {
-			parts = append(parts, "before:"+beforeDate.Format("2006-01-02"))
-		}
-		description = "filter: " + strings.Join(parts, " ")
-		if len(description) > 50 {
-			description = description[:50]
-		}
+		selection.description = truncateSelectionDescription("query: " + queryStr)
+		return selection, nil, nil
 	}
+
+	filter := query.MessageFilter{
+		SourceID:            sourceID,
+		Sender:              filters.from,
+		Domain:              filters.domain,
+		Label:               filters.label,
+		WithAttachmentsOnly: filters.hasAttachment,
+		After:               filters.after,
+		Before:              filters.before,
+		Pagination:          query.Pagination{Limit: limit},
+	}
+
+	selection.targets, err = h.engine.GetDeletionTargetsByFilter(ctx, filter)
+	if err != nil {
+		return nil, nil, newInternalError("filter messages for "+operation, err)
+	}
+
+	var parts []string
+	if filters.from != "" {
+		parts = append(parts, "from:"+filters.from)
+	}
+	if filters.domain != "" {
+		parts = append(parts, "domain:"+filters.domain)
+	}
+	if filters.label != "" {
+		parts = append(parts, "label:"+filters.label)
+	}
+	if filters.hasAttachment {
+		parts = append(parts, "has:attachment")
+	}
+	if filters.after != nil {
+		parts = append(parts, "after:"+filters.after.Format("2006-01-02"))
+	}
+	if filters.before != nil {
+		parts = append(parts, "before:"+filters.before.Format("2006-01-02"))
+	}
+	selection.description = truncateSelectionDescription("filter: " + strings.Join(parts, " "))
+
+	return selection, nil, nil
+}
+
+// truncateSelectionDescription bounds the human-readable description that ends
+// up in a manifest ID.
+func truncateSelectionDescription(description string) string {
+	if len(description) > 50 {
+		return description[:50]
+	}
+	return description
+}
+
+func (h *handlers) stageDeletion(ctx context.Context, req toolRequest) (*toolResult, error) {
+	selection, result, err := h.resolveMutationTargets(
+		ctx, req.GetArguments(), maxStageDeletionResults, "deletion")
+	if result != nil || err != nil {
+		return result, err
+	}
+	targets := selection.targets
 
 	if len(targets) == 0 {
 		return toolErrorResult("no messages match the specified criteria"), nil
@@ -2292,25 +2337,25 @@ func (h *handlers) stageDeletion(ctx context.Context, req toolRequest) (*toolRes
 	}
 	gmailIDs := deletion.SourceMessageIDs(targets)
 
-	manifest := deletion.NewManifestForSource(description, gmailIDs, source)
+	manifest := deletion.NewManifestForSource(selection.description, gmailIDs, source)
 	manifest.CreatedBy = "mcp"
 
 	// Set filter metadata for execution
 	manifest.Filters.Account = source.Identifier
-	if fromStr != "" {
-		manifest.Filters.Senders = []string{fromStr}
+	if selection.filters.from != "" {
+		manifest.Filters.Senders = []string{selection.filters.from}
 	}
-	if domainStr != "" {
-		manifest.Filters.SenderDomains = []string{domainStr}
+	if selection.filters.domain != "" {
+		manifest.Filters.SenderDomains = []string{selection.filters.domain}
 	}
-	if labelStr != "" {
-		manifest.Filters.Labels = []string{labelStr}
+	if selection.filters.label != "" {
+		manifest.Filters.Labels = []string{selection.filters.label}
 	}
-	if afterDate != nil {
-		manifest.Filters.After = afterDate.Format("2006-01-02")
+	if selection.filters.after != nil {
+		manifest.Filters.After = selection.filters.after.Format("2006-01-02")
 	}
-	if beforeDate != nil {
-		manifest.Filters.Before = beforeDate.Format("2006-01-02")
+	if selection.filters.before != nil {
+		manifest.Filters.Before = selection.filters.before.Format("2006-01-02")
 	}
 
 	if err := h.saveDeletionManifest(ctx, manifest); err != nil {

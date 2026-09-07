@@ -613,5 +613,44 @@ func (c *Client) BatchDeleteMessages(ctx context.Context, messageIDs []string) e
 	return err
 }
 
+// LabelInbox is Gmail's system label for the inbox. Removing it is what Gmail
+// calls archiving: the message keeps every other label and stays fully
+// searchable, it just leaves the inbox view.
+const LabelInbox = "INBOX"
+
+// ArchiveFromInbox removes the INBOX label from up to 1000 messages in one
+// batchModify call. Gmail applies the batch as a unit and reports no per-message
+// outcome, so the returned failure map is always nil: either every ID in the
+// batch left the inbox or the call failed as a whole. Message IDs that are
+// already out of the inbox are accepted and stay unchanged, which is what makes
+// re-running a batch safe.
+func (c *Client) ArchiveFromInbox(ctx context.Context, messageIDs []string) (map[string]error, error) {
+	if len(messageIDs) == 0 {
+		return nil, nil
+	}
+	if len(messageIDs) > 1000 {
+		return nil, fmt.Errorf("batch archive limited to 1000 messages, got %d", len(messageIDs))
+	}
+
+	body := struct {
+		IDs            []string `json:"ids"`
+		RemoveLabelIDs []string `json:"removeLabelIds"`
+	}{IDs: messageIDs, RemoveLabelIDs: []string{LabelInbox}}
+
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshal body: %w", err)
+	}
+
+	path := fmt.Sprintf("/users/%s/messages/batchModify", c.userID)
+	if _, err := c.request(ctx, OpMessagesBatchModify, "POST", path, bodyBytes); err != nil {
+		return nil, err
+	}
+	return nil, nil
+}
+
 // Ensure Client implements API interface.
 var _ API = (*Client)(nil)
+
+// Ensure Client provides the optional inbox archive capability.
+var _ InboxArchiver = (*Client)(nil)
