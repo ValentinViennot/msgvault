@@ -20,6 +20,11 @@ import (
 
 const kitTestHash64 = "abc123def456789012345678901234567890123456789012345678901234abcd"
 
+// testReleasesPath mirrors the release coordinates the updater ships with, so
+// these tests follow releaseOwner/releaseRepo instead of pinning a literal
+// that a fork or rename silently invalidates.
+const testReleasesPath = "/" + releaseOwner + "/" + releaseRepo + "/releases"
+
 func TestUpdaterClientUsesKitSelfUpdateConfiguration(t *testing.T) {
 	assert := assert.New(t)
 	home := t.TempDir()
@@ -32,7 +37,7 @@ func TestUpdaterClientUsesKitSelfUpdateConfiguration(t *testing.T) {
 
 	client := u.client()
 
-	assert.Equal("kenn-io", client.Owner, "owner")
+	assert.Equal(releaseOwner, client.Owner, "owner")
 	assert.Equal("msgvault", client.Repo, "repo")
 	assert.Equal("msgvault", client.BinaryName, "binary name")
 	assert.Equal("v0.16.0", client.CurrentVersion, "current version")
@@ -63,14 +68,14 @@ func TestUpdaterCheckForUpdateUsesKitConventionalReleaseDiscovery(t *testing.T) 
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r.Method+" "+r.URL.Path)
 		switch r.URL.Path {
-		case "/kenn-io/msgvault/releases/latest":
-			http.Redirect(w, r, "/kenn-io/msgvault/releases/tag/"+latestTag, http.StatusFound)
-		case "/kenn-io/msgvault/releases/tag/" + latestTag:
+		case testReleasesPath + "/latest":
+			http.Redirect(w, r, testReleasesPath+"/tag/"+latestTag, http.StatusFound)
+		case testReleasesPath + "/tag/" + latestTag:
 			w.WriteHeader(http.StatusOK)
-		case "/kenn-io/msgvault/releases/download/" + latestTag + "/" + assetName:
+		case testReleasesPath + "/download/" + latestTag + "/" + assetName:
 			w.Header().Set("Content-Length", "123")
 			w.WriteHeader(http.StatusOK)
-		case "/kenn-io/msgvault/releases/download/" + latestTag + "/SHA256SUMS":
+		case testReleasesPath + "/download/" + latestTag + "/SHA256SUMS":
 			_, _ = fmt.Fprintf(w, "%s  %s\n", kitTestHash64, assetName)
 		default:
 			http.NotFound(w, r)
@@ -96,16 +101,16 @@ func TestUpdaterCheckForUpdateUsesKitConventionalReleaseDiscovery(t *testing.T) 
 	assert.Equal(currentVersion, info.CurrentVersion, "current version")
 	assert.Equal(latestTag, info.LatestVersion, "latest version")
 	assert.Equal(assetName, info.AssetName, "asset name")
-	assert.Equal(server.URL+"/kenn-io/msgvault/releases/download/"+latestTag+"/"+assetName, info.DownloadURL, "download URL")
+	assert.Equal(server.URL+testReleasesPath+"/download/"+latestTag+"/"+assetName, info.DownloadURL, "download URL")
 	assert.Equal(int64(123), info.Size, "asset size")
 	assert.Equal(kitTestHash64, info.Checksum, "checksum")
 	assert.Equal([]string{
-		"GET /kenn-io/msgvault/releases/latest",
-		"GET /kenn-io/msgvault/releases/tag/" + latestTag,
-		"HEAD /kenn-io/msgvault/releases/download/" + latestTag + "/" + assetName,
-		"HEAD /kenn-io/msgvault/releases/download/" + latestTag + "/" + assetName + ".sha256.sig",
-		"HEAD /kenn-io/msgvault/releases/download/" + latestTag + "/" + assetName + ".sig",
-		"GET /kenn-io/msgvault/releases/download/" + latestTag + "/SHA256SUMS",
+		"GET " + testReleasesPath + "/latest",
+		"GET " + testReleasesPath + "/tag/" + latestTag,
+		"HEAD " + testReleasesPath + "/download/" + latestTag + "/" + assetName,
+		"HEAD " + testReleasesPath + "/download/" + latestTag + "/" + assetName + ".sha256.sig",
+		"HEAD " + testReleasesPath + "/download/" + latestTag + "/" + assetName + ".sig",
+		"GET " + testReleasesPath + "/download/" + latestTag + "/SHA256SUMS",
 	}, requests)
 }
 
@@ -119,14 +124,14 @@ func TestUpdaterCheckForUpdateOffersSameBaseReleaseForDevBuild(t *testing.T) {
 	)
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/kenn-io/msgvault/releases/latest":
-			http.Redirect(w, r, "/kenn-io/msgvault/releases/tag/"+latestTag, http.StatusFound)
-		case "/kenn-io/msgvault/releases/tag/" + latestTag:
+		case testReleasesPath + "/latest":
+			http.Redirect(w, r, testReleasesPath+"/tag/"+latestTag, http.StatusFound)
+		case testReleasesPath + "/tag/" + latestTag:
 			w.WriteHeader(http.StatusOK)
-		case "/kenn-io/msgvault/releases/download/" + latestTag + "/" + assetName:
+		case testReleasesPath + "/download/" + latestTag + "/" + assetName:
 			w.Header().Set("Content-Length", "123")
 			w.WriteHeader(http.StatusOK)
-		case "/kenn-io/msgvault/releases/download/" + latestTag + "/SHA256SUMS":
+		case testReleasesPath + "/download/" + latestTag + "/SHA256SUMS":
 			_, _ = fmt.Fprintf(w, "%s  %s\n", kitTestHash64, assetName)
 		default:
 			http.NotFound(w, r)
@@ -196,7 +201,7 @@ func TestPerformUpdateInstallsWithKitClient(t *testing.T) {
 	})
 
 	err = u.PerformUpdate(&UpdateInfo{
-		Owner:         "kenn-io",
+		Owner:         releaseOwner,
 		Repo:          "msgvault",
 		LatestVersion: "v0.17.0",
 		AssetName:     "msgvault_0.17.0_linux_amd64.tar.gz",
