@@ -70,3 +70,87 @@ func (s *Store) RemoveLabelBySourceMessageIDs(
 
 	return removed, nil
 }
+
+// SourceMessageIDsMissingRFC822ID reports which of the given messages have no
+// RFC822 Message-ID recorded.
+//
+// This matters only for IMAP. A message's source_message_id there is
+// "mailbox|uid", so moving it out of the inbox changes its key, and sync
+// rejoins the moved message to its existing row by matching the RFC822
+// Message-ID. Without one there is nothing to match on, and the next full sync
+// inserts a second row for the same message. Such messages are excluded from an
+// archive rather than silently duplicated.
+//
+// IDs that do not belong to the source are reported as missing: they are not
+// safe to archive here either.
+func (s *Store) SourceMessageIDsMissingRFC822ID(
+	sourceID int64,
+	sourceMessageIDs []string,
+) ([]string, error) {
+	if sourceID <= 0 {
+		return nil, fmt.Errorf("source id required")
+	}
+	if len(sourceMessageIDs) == 0 {
+		return nil, nil
+	}
+
+	usable := make(map[string]bool, len(sourceMessageIDs))
+	for i := 0; i < len(sourceMessageIDs); i += removeLabelChunkSize {
+		end := min(i+removeLabelChunkSize, len(sourceMessageIDs))
+		chunk := sourceMessageIDs[i:end]
+
+		placeholders := make([]string, len(chunk))
+		args := make([]any, 0, len(chunk)+1)
+		args = append(args, sourceID)
+		for j, id := range chunk {
+			placeholders[j] = "?"
+			args = append(args, id)
+		}
+
+		rows, err := s.db.Query(fmt.Sprintf(`
+			SELECT source_message_id FROM messages
+			WHERE source_id = ?
+			  AND source_message_id IN (%s)
+			  AND rfc822_message_id IS NOT NULL
+			  AND rfc822_message_id != ''
+		`, strings.Join(placeholders, ",")), args...)
+		if err != nil {
+			return nil, fmt.Errorf("check rfc822 message ids: %w", err)
+		}
+		if err := scanUsableSourceMessageIDs(rows, usable); err != nil {
+			return nil, err
+		}
+	}
+
+	var missing []string
+	for _, id := range sourceMessageIDs {
+		if !usable[id] {
+			missing = append(missing, id)
+		}
+	}
+	return missing, nil
+}
+
+// sourceMessageIDRows is the row-iteration surface both the plain and logged
+// database handles provide.
+type sourceMessageIDRows interface {
+	Next() bool
+	Scan(dest ...any) error
+	Err() error
+	Close() error
+}
+
+func scanUsableSourceMessageIDs(rows sourceMessageIDRows, usable map[string]bool) error {
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return fmt.Errorf("scan rfc822 message id: %w", err)
+		}
+		usable[id] = true
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate rfc822 message ids: %w", err)
+	}
+	return nil
+}

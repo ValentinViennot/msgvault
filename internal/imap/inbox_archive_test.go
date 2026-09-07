@@ -6,6 +6,7 @@ import (
 	"time"
 
 	imapv2 "github.com/emersion/go-imap/v2"
+	"github.com/emersion/go-imap/v2/imapclient"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.kenn.io/msgvault/internal/testutil"
@@ -109,4 +110,168 @@ func TestIsGmailAllMailLayoutAfterDiscovery(t *testing.T) {
 	require.NoError(err)
 
 	assert.True(client.IsGmailAllMailLayout())
+}
+
+// mailboxUIDs lists the UIDs currently present in one mailbox, by asking the
+// server rather than by trusting anything the client cached.
+func mailboxUIDs(t *testing.T, addr, mailbox string) []imapv2.UID {
+	t.Helper()
+	client := newTestClient(t, addr)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	var uids []imapv2.UID
+	require.NoError(t, client.withConn(ctx, func(conn *imapclient.Client) error {
+		if err := client.selectMailbox(mailbox); err != nil {
+			return err
+		}
+		criteria := &imapv2.SearchCriteria{UID: []imapv2.UIDSet{{{Start: 1, Stop: 0}}}}
+		data, err := conn.UIDSearch(criteria, nil).Wait()
+		if err != nil {
+			return err
+		}
+		uids = data.AllUIDs()
+		return nil
+	}))
+	return uids
+}
+
+func TestArchiveFromInboxMovesMessageOutOfTheInbox(t *testing.T) {
+	assert := assert.New(t)
+	require := require.New(t)
+
+	addr, _ := testutil.StartIMAPMemServerWithSpecialUse(t,
+		map[string]int{"INBOX": 2, "Archive": 0},
+		map[string][]imapv2.MailboxAttr{"Archive": {imapv2.MailboxAttrArchive}})
+	client := newTestClient(t, addr)
+
+	before := mailboxUIDs(t, addr, "INBOX")
+	require.Len(before, 2)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	failures, err := client.ArchiveFromInbox(ctx,
+		[]string{compositeID("INBOX", before[0])})
+	require.NoError(err)
+	assert.Empty(failures)
+
+	assert.Equal([]imapv2.UID{before[1]}, mailboxUIDs(t, addr, "INBOX"),
+		"only the archived message leaves the inbox")
+	assert.Len(mailboxUIDs(t, addr, "Archive"), 1,
+		"the message must arrive in the archive mailbox, not vanish")
+}
+
+// TestArchiveFromInboxIsIdempotent: a message already in the destination is at
+// the end state the caller asked for, so repeating a partly-completed batch
+// must not fail.
+func TestArchiveFromInboxIsIdempotent(t *testing.T) {
+	assert := assert.New(t)
+	require := require.New(t)
+
+	addr, _ := testutil.StartIMAPMemServerWithSpecialUse(t,
+		map[string]int{"INBOX": 1, "Archive": 1},
+		map[string][]imapv2.MailboxAttr{"Archive": {imapv2.MailboxAttrArchive}})
+	client := newTestClient(t, addr)
+
+	archived := mailboxUIDs(t, addr, "Archive")
+	require.Len(archived, 1)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	failures, err := client.ArchiveFromInbox(ctx,
+		[]string{compositeID("Archive", archived[0])})
+
+	require.NoError(err)
+	assert.Empty(failures)
+	assert.Len(mailboxUIDs(t, addr, "Archive"), 1, "no self-move, no duplicate")
+}
+
+// TestArchiveFromInboxReportsPerMessageFailures: one bad id must not abandon
+// the rest of the batch, and must not be reported as archived.
+func TestArchiveFromInboxReportsPerMessageFailures(t *testing.T) {
+	assert := assert.New(t)
+	require := require.New(t)
+
+	addr, _ := testutil.StartIMAPMemServerWithSpecialUse(t,
+		map[string]int{"INBOX": 1, "Archive": 0},
+		map[string][]imapv2.MailboxAttr{"Archive": {imapv2.MailboxAttrArchive}})
+	client := newTestClient(t, addr)
+
+	inbox := mailboxUIDs(t, addr, "INBOX")
+	require.Len(inbox, 1)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	failures, err := client.ArchiveFromInbox(ctx, []string{
+		"not-a-composite-id",
+		compositeID("INBOX", inbox[0]),
+	})
+
+	require.NoError(err)
+	require.Len(failures, 1)
+	assert.Contains(failures, "not-a-composite-id")
+	assert.Empty(mailboxUIDs(t, addr, "INBOX"),
+		"the valid message is still archived")
+}
+
+func TestArchiveFromInboxRefusesWithoutAnArchiveMailbox(t *testing.T) {
+	assert := assert.New(t)
+
+	addr, _ := testutil.StartIMAPMemServerWithSpecialUse(t,
+		map[string]int{"INBOX": 1}, nil)
+	client := newTestClient(t, addr)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, err := client.ArchiveFromInbox(ctx, []string{"INBOX|1"})
+
+	assert.ErrorIs(err, ErrNoArchiveMailbox)
+}
+
+// TestArchiveFromInboxRefusesGmailLayoutBeforeMoving is the safety property:
+// zero MOVE commands are issued for a Gmail-over-IMAP account, because the
+// stored ids address All Mail rather than the inbox copy.
+func TestArchiveFromInboxRefusesGmailLayoutBeforeMoving(t *testing.T) {
+	assert := assert.New(t)
+	require := require.New(t)
+
+	addr, _ := testutil.StartIMAPMemServerWithSpecialUse(t,
+		map[string]int{"INBOX": 1, "[Gmail]/All Mail": 1, "Archive": 0},
+		map[string][]imapv2.MailboxAttr{"[Gmail]/All Mail": {imapv2.MailboxAttrAll}})
+	client := newTestClient(t, addr)
+
+	allMail := mailboxUIDs(t, addr, "[Gmail]/All Mail")
+	require.Len(allMail, 1)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, err := client.ArchiveFromInbox(ctx,
+		[]string{compositeID("[Gmail]/All Mail", allMail[0])})
+
+	assert.ErrorIs(err, ErrNoArchiveMailbox)
+	assert.Len(mailboxUIDs(t, addr, "[Gmail]/All Mail"), 1, "nothing may have moved")
+	assert.Len(mailboxUIDs(t, addr, "INBOX"), 1)
+}
+
+// TestArchiveFromInboxRefusesDestinationOutsideFolderFilter: moving a message
+// into an excluded folder would drop it out of every future sync's view, which
+// reads as the message having disappeared from the archive.
+func TestArchiveFromInboxRefusesDestinationOutsideFolderFilter(t *testing.T) {
+	assert := assert.New(t)
+	require := require.New(t)
+
+	addr, _ := testutil.StartIMAPMemServerWithSpecialUse(t,
+		map[string]int{"INBOX": 1, "Archive": 0},
+		map[string][]imapv2.MailboxAttr{"Archive": {imapv2.MailboxAttrArchive}})
+	client := newTestClient(t, addr, WithFolderFilter(nil, []string{"Archive"}))
+
+	inbox := mailboxUIDs(t, addr, "INBOX")
+	require.Len(inbox, 1)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, err := client.ArchiveFromInbox(ctx, []string{compositeID("INBOX", inbox[0])})
+
+	assert.ErrorIs(err, ErrNoArchiveMailbox)
+	assert.Len(mailboxUIDs(t, addr, "INBOX"), 1, "nothing may have moved")
 }

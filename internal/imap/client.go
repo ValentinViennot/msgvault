@@ -80,6 +80,13 @@ const Trash = "Trash"
 // that do not advertise \Archive via special-use attributes.
 const Archive = "Archive"
 
+// ErrNoArchiveMailbox reports that this account has nowhere to archive to:
+// either the server advertises no \Archive and has no conventionally named
+// archive folder, the only candidate is excluded by the folder filter, or the
+// account uses Gmail's IMAP layout, where the inbox copy is not addressable and
+// the native Gmail API must be used instead.
+var ErrNoArchiveMailbox = errors.New("account has no usable archive mailbox")
+
 // Client implements gmail.API for IMAP servers.
 type Client struct {
 	config      *Config
@@ -668,8 +675,21 @@ func (c *Client) InboxArchiveTarget(ctx context.Context) (mailbox string, ok boo
 		if c.isGmailAllMailLayoutLocked() {
 			return nil
 		}
+		if c.archiveMailbox == "" {
+			return nil
+		}
+		// A destination outside the effective folder filter would take the
+		// message out of every future sync's view, which reads as the message
+		// having disappeared. Refuse rather than lose sight of it.
+		if len(filterMailboxes(
+			[]string{c.archiveMailbox},
+			c.effectiveFolderIncludeLocked(),
+			c.folderFilterExclude,
+		)) == 0 {
+			return nil
+		}
 		mailbox = c.archiveMailbox
-		ok = mailbox != ""
+		ok = true
 		return nil
 	})
 	if convErr != nil {
@@ -1907,6 +1927,68 @@ func (c *Client) DeleteMessage(ctx context.Context, messageID string) error {
 		}
 		return nil
 	})
+}
+
+// ArchiveFromInbox moves messages out of the inbox into the account's archive
+// mailbox, one UID MOVE at a time -- IMAP has no batch form, and MOVE is
+// per-mailbox anyway.
+//
+// It deliberately does not record the destination UID, even though MOVE returns
+// COPYUID on a UIDPLUS server. A message's source_message_id is "mailbox|uid",
+// so the move changes its key, and re-keying is owned by sync: ingestMessage
+// matches the message by RFC822 Message-ID and re-keys it under a
+// compare-and-swap. Writing an inferred key here would race that swap and could
+// point the row at the wrong message. Callers must therefore ensure the
+// messages they archive have an RFC822 Message-ID, or sync cannot rejoin them
+// and the next full sync inserts a duplicate row.
+func (c *Client) ArchiveFromInbox(
+	ctx context.Context, messageIDs []string,
+) (map[string]error, error) {
+	if len(messageIDs) == 0 {
+		return nil, nil
+	}
+
+	destination, ok, err := c.InboxArchiveTarget(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrNoArchiveMailbox
+	}
+
+	failures := make(map[string]error)
+	convErr := c.withConn(ctx, func(conn *imapclient.Client) error {
+		for _, messageID := range messageIDs {
+			mailbox, uid, parseErr := parseCompositeID(messageID)
+			if parseErr != nil {
+				failures[messageID] = parseErr
+				continue
+			}
+			// Already where we would put it: the end state is what matters, so
+			// this counts as archived rather than as a failure.
+			if mailbox == destination {
+				continue
+			}
+			if selectErr := c.selectMailbox(mailbox); selectErr != nil {
+				failures[messageID] = selectErr
+				continue
+			}
+			var uidSet imap.UIDSet
+			uidSet.AddNum(uid)
+			if _, moveErr := conn.Move(uidSet, destination).Wait(); moveErr != nil {
+				failures[messageID] = fmt.Errorf("MOVE to %q: %w", destination, moveErr)
+				continue
+			}
+		}
+		return nil
+	})
+	if convErr != nil {
+		return nil, convErr
+	}
+	if len(failures) == 0 {
+		return nil, nil
+	}
+	return failures, nil
 }
 
 // BatchDeleteMessages always returns an error to signal that IMAP

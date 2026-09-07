@@ -3619,17 +3619,28 @@ func (a *storeAPIAdapter) RunInboxArchive(
 		return empty, err
 	}
 
+	archivable, excluded, err := a.archivableSourceMessageIDs(src, req.SourceMessageIDs)
+	if err != nil {
+		return empty, err
+	}
+	if len(archivable) == 0 {
+		return api.InboxArchiveRunResult{
+			Failed:    len(excluded),
+			FailedIDs: excluded,
+		}, nil
+	}
+
 	result, err := archiver.
 		WithLogger(logger).
 		WithChunkSize(inboxArchiveChunkSize(src.SourceType)).
 		WithYieldCheck(a.inboxArchiveYieldCheck()).
-		Archive(ctx, src, req.SourceMessageIDs)
+		Archive(ctx, src, archivable)
 
 	out := api.InboxArchiveRunResult{
 		Archived:  result.Archived,
-		Failed:    result.Failed,
+		Failed:    result.Failed + len(excluded),
 		Remaining: result.Remaining,
-		FailedIDs: result.FailedIDs,
+		FailedIDs: append(append([]string(nil), result.FailedIDs...), excluded...),
 		Yielded:   result.Yielded,
 	}
 	if err != nil {
@@ -3638,6 +3649,45 @@ func (a *storeAPIAdapter) RunInboxArchive(
 		return out, err
 	}
 	return out, nil
+}
+
+// archivableSourceMessageIDs splits a selection into the messages that can be
+// archived and those that must be left alone.
+//
+// Only IMAP has an exclusion. There, a message's source_message_id encodes its
+// mailbox, so moving it changes its key and sync rejoins it to its existing row
+// by RFC822 Message-ID. A message with no Message-ID header has nothing to
+// rejoin on, and the next full sync would file it as a second copy -- so it is
+// reported as failed rather than duplicated. Gmail message IDs are stable
+// across a label change, so nothing is excluded there.
+func (a *storeAPIAdapter) archivableSourceMessageIDs(
+	src *store.Source, sourceMessageIDs []string,
+) (archivable, excluded []string, err error) {
+	if src.SourceType != sourceTypeIMAP {
+		return sourceMessageIDs, nil, nil
+	}
+
+	excluded, err = a.store.SourceMessageIDsMissingRFC822ID(src.ID, sourceMessageIDs)
+	if err != nil {
+		return nil, nil, fmt.Errorf("check archivable messages: %w", err)
+	}
+	if len(excluded) == 0 {
+		return sourceMessageIDs, nil, nil
+	}
+
+	skip := make(map[string]bool, len(excluded))
+	for _, id := range excluded {
+		skip[id] = true
+	}
+	archivable = make([]string, 0, len(sourceMessageIDs)-len(excluded))
+	for _, id := range sourceMessageIDs {
+		if !skip[id] {
+			archivable = append(archivable, id)
+		}
+	}
+	logger.Warn("skipping IMAP messages without an RFC822 Message-ID",
+		"source", src.Identifier, "skipped", len(excluded))
+	return archivable, excluded, nil
 }
 
 // inboxArchiveYieldCheck lets a long run step aside for a waiting API request
