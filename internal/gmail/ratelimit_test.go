@@ -234,6 +234,8 @@ func TestOperationCost(t *testing.T) {
 		{OpMessagesTrash, 5},
 		{OpMessagesDelete, 10},
 		{OpMessagesBatchDelete, 50},
+		{OpMessagesModify, 5},
+		{OpMessagesBatchModify, 50},
 		{OpProfile, 1},
 		{Operation(999), 1}, // Unknown operation defaults to 1
 	}

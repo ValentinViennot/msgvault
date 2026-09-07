@@ -53,6 +53,25 @@ type MessageDeleter interface {
 	BatchDeleteMessages(ctx context.Context, messageIDs []string) error
 }
 
+// InboxArchiver removes messages from the account's inbox without deleting
+// them. It is deliberately kept out of API: this is an optional provider
+// capability, and callers reach it through a runtime type assertion so that
+// implementations which cannot archive stay valid API clients. It is the only
+// write capability outside MessageDeleter, so it stays a single method.
+//
+// Callers must not rewrite a message's stored source_message_id from anything
+// this reports: on IMAP the identifier encodes the mailbox and changes with the
+// move, and sync already re-keys such messages by RFC822 Message-ID.
+type InboxArchiver interface {
+	// ArchiveFromInbox removes up to 1000 messages from the inbox.
+	//
+	// A non-nil error is fatal for the whole batch: the provider refused, the
+	// grant lacks the scope, or the transport failed. Per-message problems are
+	// reported in failures, keyed by message ID; an ID absent from failures was
+	// archived (or was already out of the inbox, which is the same end state).
+	ArchiveFromInbox(ctx context.Context, messageIDs []string) (failures map[string]error, err error)
+}
+
 // API defines the interface for Gmail operations.
 // This interface enables mocking for tests without hitting the real API.
 type API interface {

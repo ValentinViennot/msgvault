@@ -76,6 +76,10 @@ const (
 // that do not advertise \Trash via special-use attributes.
 const Trash = "Trash"
 
+// Archive is the canonical fallback name for the archive mailbox on servers
+// that do not advertise \Archive via special-use attributes.
+const Archive = "Archive"
+
 // Client implements gmail.API for IMAP servers.
 type Client struct {
 	config      *Config
@@ -92,6 +96,7 @@ type Client struct {
 	messageListCache      []gmailapi.MessageID // full message ID list, built once per session
 	trashMailbox          string               // cached trash mailbox name
 	junkMailbox           string               // cached junk/spam mailbox name
+	archiveMailbox        string               // mailbox with \\Archive attribute (empty if not detected)
 	allMailFolder         string               // mailbox with \All attribute (empty if not detected)
 	msgIDToLabels         map[string][]string  // RFC822 Message-ID → mailbox memberships
 	seenRFC822IDs         map[string]bool      // dedup overlapping mailbox copies
@@ -581,6 +586,9 @@ func (c *Client) listMailboxesLocked() ([]string, error) {
 		if c.junkMailbox == "" && hasAttr(item.Attrs, imap.MailboxAttrJunk) {
 			c.junkMailbox = item.Mailbox
 		}
+		if c.archiveMailbox == "" && hasAttr(item.Attrs, imap.MailboxAttrArchive) {
+			c.archiveMailbox = item.Mailbox
+		}
 	}
 
 	// Fallback: look for common junk/spam folder names
@@ -616,8 +624,73 @@ func (c *Client) listMailboxesLocked() ([]string, error) {
 		}
 	}
 
+	// Fallback: look for common archive folder names. Gmail is deliberately
+	// excluded here -- it advertises no \\Archive, and its archive idiom is a
+	// label removal that IMAP cannot address (see IsGmailAllMailLayout).
+	if c.archiveMailbox == "" {
+		for _, candidate := range []string{Archive, "Archived", "Archives"} {
+			for _, mb := range names {
+				if strings.EqualFold(mb, candidate) {
+					c.archiveMailbox = mb
+					break
+				}
+			}
+			if c.archiveMailbox != "" {
+				break
+			}
+		}
+	}
+
 	c.mailboxCache = names
 	return names, nil
+}
+
+// InboxArchiveTarget reports the mailbox that inbox archiving should move
+// messages into, running mailbox discovery first if it has not happened yet.
+//
+// It returns a nil mailbox name and a false ok when this account cannot be
+// archived over IMAP:
+//
+//   - Gmail's IMAP layout advertises no \Archive, and its archive idiom is
+//     removing the \Inbox label. Enumeration for such accounts covers All Mail,
+//     Trash and Junk but never INBOX (see buildMessageListCache), so no stored
+//     source_message_id addresses the inbox copy and there is nothing to MOVE.
+//     Those accounts must be archived through the native Gmail API instead.
+//   - A server that advertises no \Archive and has no conventionally named
+//     archive folder has nowhere to put the message.
+func (c *Client) InboxArchiveTarget(ctx context.Context) (mailbox string, ok bool, err error) {
+	convErr := c.withConn(ctx, func(*imapclient.Client) error {
+		if c.archiveMailbox == "" || c.allMailFolder == "" {
+			if _, listErr := c.listMailboxesLocked(); listErr != nil {
+				return fmt.Errorf("discover archive mailbox: %w", listErr)
+			}
+		}
+		if c.isGmailAllMailLayoutLocked() {
+			return nil
+		}
+		mailbox = c.archiveMailbox
+		ok = mailbox != ""
+		return nil
+	})
+	if convErr != nil {
+		return "", false, convErr
+	}
+	return mailbox, ok, nil
+}
+
+// IsGmailAllMailLayout reports whether this account is served by Gmail's IMAP
+// layout. Discovery must already have run; callers that need it performed
+// on demand should use InboxArchiveTarget.
+func (c *Client) IsGmailAllMailLayout() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.isGmailAllMailLayoutLocked()
+}
+
+// isGmailAllMailLayoutLocked mirrors the branch buildMessageListCache uses to
+// decide that All Mail is a superset of every other mailbox. Caller must hold mu.
+func (c *Client) isGmailAllMailLayoutLocked() bool {
+	return strings.HasPrefix(c.allMailFolder, "[Gmail]/")
 }
 
 // clearMailboxDiscoveryLocked discards connection-derived mailbox and
@@ -629,6 +702,7 @@ func (c *Client) clearMailboxDiscoveryLocked() {
 	c.trashMailbox = ""
 	c.junkMailbox = ""
 	c.allMailFolder = ""
+	c.archiveMailbox = ""
 }
 
 // enumerateMailboxSearchCriteria always constrains the search with an

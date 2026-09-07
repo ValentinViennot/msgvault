@@ -125,10 +125,18 @@ const (
 // or resultFatal for scope errors that should halt execution.
 func (e *Executor) deleteOne(ctx context.Context, sourceID int64, gmailID string, method Method) (deleteResult, error) {
 	var err error
-	if method == MethodTrash {
+	switch method {
+	case MethodTrash:
 		err = e.client.TrashMessage(ctx, gmailID)
-	} else {
+	case MethodDelete:
 		err = e.client.DeleteMessage(ctx, gmailID)
+	default:
+		// Fail closed. An unrecognised method must never reach the permanent
+		// delete call: a manifest carrying one is malformed, hand-edited, or
+		// was written by a binary that knows an operation this one does not,
+		// and guessing "permanent delete" destroys mail irrecoverably.
+		return resultFatal, fmt.Errorf(
+			"unsupported deletion method %q for message %s", method, gmailID)
 	}
 
 	if err == nil || isNotFoundError(err) {
