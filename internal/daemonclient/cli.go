@@ -1438,3 +1438,91 @@ func cliAccountUpdateResultFromGenerated(result *generated.UpdateResult) *CLIAcc
 		DisplayName: result.DisplayName,
 	}
 }
+
+// InboxArchiveAuthorizeRequest asks the daemon for a confirmation token
+// covering an exact set of messages.
+type InboxArchiveAuthorizeRequest struct {
+	Account          string
+	SourceID         int64
+	Description      string
+	SourceMessageIDs []string
+}
+
+// InboxArchiveExecuteRequest redeems a confirmation token.
+type InboxArchiveExecuteRequest struct {
+	ConfirmationToken string
+	SourceMessageIDs  []string
+}
+
+// InboxArchiveResult reports what the daemon archived.
+type InboxArchiveResult struct {
+	BatchID   string
+	Account   string
+	Archived  int
+	Failed    int
+	Remaining int
+	FailedIDs []string
+	Yielded   bool
+}
+
+// AuthorizeInboxArchive mints a confirmation token for removing the named
+// messages from the account's inbox. Nothing is changed by this call.
+func (c *Client) AuthorizeInboxArchive(
+	ctx context.Context, req InboxArchiveAuthorizeRequest,
+) (string, error) {
+	body := generated.AuthorizeInboxArchiveBody{
+		Account:          req.Account,
+		SourceID:         req.SourceID,
+		Description:      &req.Description,
+		SourceMessageIds: req.SourceMessageIDs,
+	}
+	resp, err := APIResponse(c, func(client *apiclient.Client) (*generated.AuthorizeInboxArchiveResp, error) {
+		return client.AuthorizeInboxArchiveWithResponse(ctx,
+			&generated.AuthorizeInboxArchiveRequestOptions{Body: &body})
+	})
+	if err != nil {
+		return "", err
+	}
+	if resp.JSON200 == nil {
+		return "", errors.New("daemon returned no confirmation token")
+	}
+	return resp.JSON200.ConfirmationToken, nil
+}
+
+// ExecuteInboxArchive removes the confirmed messages from the inbox.
+func (c *Client) ExecuteInboxArchive(
+	ctx context.Context, req InboxArchiveExecuteRequest,
+) (InboxArchiveResult, error) {
+	body := generated.ExecuteInboxArchiveBody{
+		ConfirmationToken: req.ConfirmationToken,
+		SourceMessageIds:  req.SourceMessageIDs,
+	}
+	resp, err := APIResponse(c, func(client *apiclient.Client) (*generated.ExecuteInboxArchiveResp, error) {
+		return client.ExecuteInboxArchiveWithResponse(ctx,
+			&generated.ExecuteInboxArchiveRequestOptions{Body: &body})
+	})
+	if err != nil {
+		return InboxArchiveResult{}, err
+	}
+	if resp.JSON200 == nil {
+		return InboxArchiveResult{}, errors.New("daemon returned no archive result")
+	}
+	return inboxArchiveResultFromGenerated(*resp.JSON200), nil
+}
+
+func inboxArchiveResultFromGenerated(
+	resp generated.InboxArchiveExecuteResponse,
+) InboxArchiveResult {
+	out := InboxArchiveResult{
+		BatchID:   resp.BatchID,
+		Account:   resp.Account,
+		Archived:  int(resp.Archived),
+		Failed:    int(resp.Failed),
+		Remaining: int(resp.Remaining),
+	}
+	out.FailedIDs = resp.FailedIds
+	if resp.Yielded != nil {
+		out.Yielded = *resp.Yielded
+	}
+	return out
+}

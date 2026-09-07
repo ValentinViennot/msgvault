@@ -22,6 +22,7 @@ var mcpHTTPAddr string
 var mcpHTTPAllowInsecure bool
 var mcpHTTPAllowWrites bool
 var mcpAllowProfileWrites bool
+var mcpAllowMailboxWrites bool
 var serveMCPHTTPWithOptions = mcpserver.ServeHTTPWithOptions
 
 var mcpCmd = &cobra.Command{
@@ -61,6 +62,7 @@ Add to Claude Desktop config:
 			return err
 		}
 		opts.AllowProfileWrites = mcpAllowProfileWrites
+		opts.AllowMailboxWrites = mcpAllowMailboxWrites
 
 		if mcpHTTPAddr != "" {
 			normalized, err := normalizeMCPHTTPAddr(
@@ -91,6 +93,7 @@ func daemonMCPServeOptions(ctx context.Context, st *daemonclient.Client) (mcpser
 		DocumentSearcher:   st,
 		PersonFileSearcher: daemonMCPPersonFileSearcher{client: st},
 		DataDir:            cfg.Data.DataDir,
+		InboxArchiver:      daemonMCPInboxArchiver{client: st},
 	}
 	compatible, capabilityErr := st.SupportsAPISchemaVersion(ctx, peopleMinAPISchemaVersion)
 	if capabilityErr != nil {
@@ -160,6 +163,68 @@ type daemonMCPManifestSaver struct {
 func (s daemonMCPManifestSaver) SaveManifest(ctx context.Context, manifest *deletion.Manifest) error {
 	_, err := s.client.CreateCLIDeletionManifest(ctx, manifest)
 	return err
+}
+
+// daemonMCPInboxArchiver routes archive_from_inbox through the selected daemon.
+// The MCP process holds no provider credentials of its own; it decides which
+// messages the user meant and the daemon, which has the credentials and its own
+// opt-in, decides whether to act.
+type daemonMCPInboxArchiver struct {
+	client *daemonclient.Client
+}
+
+func (a daemonMCPInboxArchiver) AuthorizeInboxArchive(
+	ctx context.Context, req mcpserver.InboxArchiveAuthorizeRequest,
+) (string, error) {
+	token, err := a.client.AuthorizeInboxArchive(ctx, daemonclient.InboxArchiveAuthorizeRequest{
+		Account:          req.Account,
+		SourceID:         req.SourceID,
+		Description:      req.Description,
+		SourceMessageIDs: req.SourceMessageIDs,
+	})
+	return token, translateDaemonInboxArchiveErr(err)
+}
+
+func (a daemonMCPInboxArchiver) ExecuteInboxArchive(
+	ctx context.Context, req mcpserver.InboxArchiveExecuteRequest,
+) (mcpserver.InboxArchiveResult, error) {
+	result, err := a.client.ExecuteInboxArchive(ctx, daemonclient.InboxArchiveExecuteRequest{
+		ConfirmationToken: req.ConfirmationToken,
+		SourceMessageIDs:  req.SourceMessageIDs,
+	})
+	if err != nil {
+		return mcpserver.InboxArchiveResult{}, translateDaemonInboxArchiveErr(err)
+	}
+	return mcpserver.InboxArchiveResult{
+		BatchID:   result.BatchID,
+		Archived:  result.Archived,
+		Failed:    result.Failed,
+		Remaining: result.Remaining,
+		FailedIDs: result.FailedIDs,
+		Yielded:   result.Yielded,
+	}, nil
+}
+
+// translateDaemonInboxArchiveErr maps the daemon's stable error codes onto the
+// MCP layer's sentinels, so the tool can tell the model what to do about each
+// one instead of reporting an opaque failure.
+func translateDaemonInboxArchiveErr(err error) error {
+	var apiErr *daemonclient.APIError
+	if err == nil || !errors.As(err, &apiErr) {
+		return err
+	}
+	switch apiErr.APIErrorCode() {
+	case "mailbox_writes_disabled", "mailbox_writes_unavailable":
+		return fmt.Errorf("%w: %s", mcpserver.ErrMailboxWritesDisabled, apiErr.Message)
+	case "confirmation_token_invalid", "confirmation_required":
+		return fmt.Errorf("%w: %s", mcpserver.ErrInboxArchiveTokenInvalid, apiErr.Message)
+	case "unsupported_source":
+		return fmt.Errorf("%w: %s", mcpserver.ErrInboxArchiveUnsupported, apiErr.Message)
+	case "operation_in_progress", "server_busy":
+		return fmt.Errorf("%w: %s", mcpserver.ErrInboxArchiveBusy, apiErr.Message)
+	default:
+		return err
+	}
 }
 
 func (s daemonMCPHybridSearcher) SearchHybrid(
@@ -273,6 +338,13 @@ func init() {
 		"Expose write-class MCP tools over HTTP. This permits attachment exports, "+
 			"deletion manifests, and profile writes separately enabled with "+
 			"--allow-profile-writes; enable it only for trusted, authenticated clients.")
+	mcpCmd.Flags().BoolVar(&mcpAllowMailboxWrites, "allow-mailbox-writes", false,
+		"Expose archive_from_inbox, which removes messages from your live inbox at "+
+			"the mail provider. Archiving is reversible and deletes nothing, but it "+
+			"changes a mailbox this tool otherwise only reads, so enable it only for "+
+			"sessions where the user has authorized mailbox changes. The daemon "+
+			"carries its own opt-in as well: set [inbox_archive] remote_enabled = true "+
+			"in its config.toml.")
 	mcpCmd.Flags().BoolVar(&mcpAllowProfileWrites, "allow-profile-writes", false,
 		"Expose person promotion and private Notes writes. Model tool calls "+
 			"can persist profile data, so enable this only for sessions where the user "+

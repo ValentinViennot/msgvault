@@ -4664,6 +4664,50 @@ func (i ImportResult) Validate() error {
 	return errors
 }
 
+type InboxArchiveAuthorizeRequest struct {
+	Account          string   `json:"account" validate:"required"`
+	Description      *string  `json:"description,omitempty"`
+	SourceID         int64    `json:"source_id"`
+	SourceMessageIds []string `json:"source_message_ids" validate:"required"`
+}
+
+func (i InboxArchiveAuthorizeRequest) Validate() error {
+	return runtime.ConvertValidatorError(typesValidator.Struct(i))
+}
+
+type InboxArchiveAuthorizeResponse struct {
+	ConfirmationToken string    `json:"confirmation_token" validate:"required"`
+	ExpiresAt         time.Time `json:"expires_at" validate:"required"`
+	MessageCount      int64     `json:"message_count"`
+}
+
+func (i InboxArchiveAuthorizeResponse) Validate() error {
+	return runtime.ConvertValidatorError(typesValidator.Struct(i))
+}
+
+type InboxArchiveExecuteRequest struct {
+	ConfirmationToken string   `json:"confirmation_token" validate:"required"`
+	SourceMessageIds  []string `json:"source_message_ids" validate:"required"`
+}
+
+func (i InboxArchiveExecuteRequest) Validate() error {
+	return runtime.ConvertValidatorError(typesValidator.Struct(i))
+}
+
+type InboxArchiveExecuteResponse struct {
+	Account   string   `json:"account" validate:"required"`
+	Archived  int64    `json:"archived"`
+	BatchID   string   `json:"batch_id" validate:"required"`
+	Failed    int64    `json:"failed"`
+	FailedIds []string `json:"failed_ids,omitempty"`
+	Remaining int64    `json:"remaining"`
+	Yielded   *bool    `json:"yielded,omitempty"`
+}
+
+func (i InboxArchiveExecuteResponse) Validate() error {
+	return runtime.ConvertValidatorError(typesValidator.Struct(i))
+}
+
 type ListDeletionsResponse struct {
 	Manifests []DeletionManifestSummary `json:"manifests" validate:"required"`
 }

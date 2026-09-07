@@ -362,6 +362,9 @@ var operationGateExemptPaths = map[string]bool{
 	"/api/v1/cli/deduplicate/plan":   true,
 	backupFreezeBeginPath:            true,
 	backupFreezeEndPath:              true,
+	// Minting an inbox-archive confirmation token reads the selection and
+	// seals it; the archive itself is a separate, gated request.
+	inboxArchiveAuthorizePath: true,
 }
 
 // readOnlyPostRoutePatterns lists the analytical POST routes whose handlers

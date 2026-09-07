@@ -5137,6 +5137,83 @@ components:
         - candidates
         - applied
       type: object
+    InboxArchiveAuthorizeRequest:
+      additionalProperties: false
+      properties:
+        account:
+          type: string
+        description:
+          type: string
+        source_id:
+          format: int64
+          type: integer
+        source_message_ids:
+          items:
+            type: string
+          type: array
+      required:
+        - account
+        - source_id
+        - source_message_ids
+      type: object
+    InboxArchiveAuthorizeResponse:
+      additionalProperties: true
+      properties:
+        confirmation_token:
+          type: string
+        expires_at:
+          format: date-time
+          type: string
+        message_count:
+          format: int64
+          type: integer
+      required:
+        - confirmation_token
+        - message_count
+        - expires_at
+      type: object
+    InboxArchiveExecuteRequest:
+      additionalProperties: false
+      properties:
+        confirmation_token:
+          type: string
+        source_message_ids:
+          items:
+            type: string
+          type: array
+      required:
+        - confirmation_token
+        - source_message_ids
+      type: object
+    InboxArchiveExecuteResponse:
+      additionalProperties: true
+      properties:
+        account:
+          type: string
+        archived:
+          format: int64
+          type: integer
+        batch_id:
+          type: string
+        failed:
+          format: int64
+          type: integer
+        failed_ids:
+          items:
+            type: string
+          type: array
+        remaining:
+          format: int64
+          type: integer
+        yielded:
+          type: boolean
+      required:
+        - batch_id
+        - account
+        - archived
+        - failed
+        - remaining
+      type: object
     ListDeletionsResponse:
       additionalProperties: true
       properties:
@@ -17286,6 +17363,60 @@ paths:
       security:
         - apiKey: []
       summary: Get historical import status
+      tags:
+        - API
+  /api/v1/inbox-archive/authorize:
+    post:
+      operationId: authorizeInboxArchive
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InboxArchiveAuthorizeRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InboxArchiveAuthorizeResponse"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Error
+      security:
+        - apiKey: []
+      summary: Mint a confirmation token for removing messages from the inbox
+      tags:
+        - API
+  /api/v1/inbox-archive/execute:
+    post:
+      operationId: executeInboxArchive
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InboxArchiveExecuteRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InboxArchiveExecuteResponse"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Error
+      security:
+        - apiKey: []
+      summary: Remove confirmed messages from the inbox at the mail provider
       tags:
         - API
   /api/v1/integrations/tasks/search:

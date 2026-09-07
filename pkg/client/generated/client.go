@@ -475,6 +475,14 @@ type ClientInterface interface {
 	GetImportJob(ctx context.Context, options *GetImportJobRequestOptions, reqEditors ...runtime.RequestEditorFn) (*GetImportJobResponse, error)
 	GetImportJobWithResponse(ctx context.Context, options *GetImportJobRequestOptions, reqEditors ...runtime.RequestEditorFn) (*GetImportJobResp, error)
 
+	// AuthorizeInboxArchive Mint a confirmation token for removing messages from the inbox
+	AuthorizeInboxArchive(ctx context.Context, options *AuthorizeInboxArchiveRequestOptions, reqEditors ...runtime.RequestEditorFn) (*AuthorizeInboxArchiveResponse, error)
+	AuthorizeInboxArchiveWithResponse(ctx context.Context, options *AuthorizeInboxArchiveRequestOptions, reqEditors ...runtime.RequestEditorFn) (*AuthorizeInboxArchiveResp, error)
+
+	// ExecuteInboxArchive Remove confirmed messages from the inbox at the mail provider
+	ExecuteInboxArchive(ctx context.Context, options *ExecuteInboxArchiveRequestOptions, reqEditors ...runtime.RequestEditorFn) (*ExecuteInboxArchiveResponse, error)
+	ExecuteInboxArchiveWithResponse(ctx context.Context, options *ExecuteInboxArchiveRequestOptions, reqEditors ...runtime.RequestEditorFn) (*ExecuteInboxArchiveResp, error)
+
 	// SearchIntegrationTasks Search tasks in the configured project
 	SearchIntegrationTasks(ctx context.Context, options *SearchIntegrationTasksRequestOptions, reqEditors ...runtime.RequestEditorFn) (*SearchIntegrationTasksResponse, error)
 	SearchIntegrationTasksWithResponse(ctx context.Context, options *SearchIntegrationTasksRequestOptions, reqEditors ...runtime.RequestEditorFn) (*SearchIntegrationTasksResp, error)
@@ -7749,6 +7757,134 @@ func (c *Client) GetImportJob(ctx context.Context, options *GetImportJobRequestO
 	}
 
 	resp, err := c.apiClient.ExecuteRequest(ctx, req, "/api/v1/imports/{job_id}")
+	if err != nil {
+		return nil, fmt.Errorf("error executing request: %w", err)
+	}
+	return responseParser(ctx, resp)
+}
+
+// AuthorizeInboxArchive Mint a confirmation token for removing messages from the inbox
+func (c *Client) AuthorizeInboxArchive(ctx context.Context, options *AuthorizeInboxArchiveRequestOptions, reqEditors ...runtime.RequestEditorFn) (*AuthorizeInboxArchiveResponse, error) {
+	var err error
+	reqParams := runtime.RequestOptionsParameters{
+		RequestURL:  c.apiClient.GetBaseURL() + "/api/v1/inbox-archive/authorize",
+		Method:      "POST",
+		Options:     options,
+		ContentType: "application/json",
+	}
+
+	req, err := c.apiClient.CreateRequest(ctx, reqParams, reqEditors...)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	responseParser := func(ctx context.Context, resp *runtime.Response) (*AuthorizeInboxArchiveResponse, error) {
+		bodyBytes := resp.Content
+		if resp.StatusCode != 200 {
+			target := new(AuthorizeInboxArchiveErrorResponse)
+			// Handle empty error response body gracefully - skip unmarshal if no content
+			if len(bodyBytes) > 0 {
+				if err = json.Unmarshal(bodyBytes, target); err != nil {
+					return nil, &runtime.ResponseDecodeError{
+						StatusCode:    resp.StatusCode,
+						ContentType:   resp.Headers.Get("Content-Type"),
+						ContentLength: len(bodyBytes),
+						TargetType:    "AuthorizeInboxArchiveErrorResponse",
+						Body:          bodyBytes,
+						Err:           err,
+					}
+				}
+			}
+			// Return error with (possibly empty) target
+			if errTarget, ok := any(*target).(error); ok {
+				return nil, runtime.NewClientAPIError(errTarget, runtime.WithStatusCode(resp.StatusCode))
+			}
+			return nil, runtime.NewClientAPIError(fmt.Errorf("API error (status %d): %v", resp.StatusCode, *target),
+				runtime.WithStatusCode(resp.StatusCode))
+		}
+		target := new(AuthorizeInboxArchiveResponse)
+		// Handle empty response body gracefully
+		if len(bodyBytes) == 0 {
+			return target, nil
+		}
+		if err = json.Unmarshal(bodyBytes, target); err != nil {
+			return nil, &runtime.ResponseDecodeError{
+				StatusCode:    resp.StatusCode,
+				ContentType:   resp.Headers.Get("Content-Type"),
+				ContentLength: len(bodyBytes),
+				TargetType:    "AuthorizeInboxArchiveResponse",
+				Body:          bodyBytes,
+				Err:           err,
+			}
+		}
+		return target, nil
+	}
+
+	resp, err := c.apiClient.ExecuteRequest(ctx, req, "/api/v1/inbox-archive/authorize")
+	if err != nil {
+		return nil, fmt.Errorf("error executing request: %w", err)
+	}
+	return responseParser(ctx, resp)
+}
+
+// ExecuteInboxArchive Remove confirmed messages from the inbox at the mail provider
+func (c *Client) ExecuteInboxArchive(ctx context.Context, options *ExecuteInboxArchiveRequestOptions, reqEditors ...runtime.RequestEditorFn) (*ExecuteInboxArchiveResponse, error) {
+	var err error
+	reqParams := runtime.RequestOptionsParameters{
+		RequestURL:  c.apiClient.GetBaseURL() + "/api/v1/inbox-archive/execute",
+		Method:      "POST",
+		Options:     options,
+		ContentType: "application/json",
+	}
+
+	req, err := c.apiClient.CreateRequest(ctx, reqParams, reqEditors...)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	responseParser := func(ctx context.Context, resp *runtime.Response) (*ExecuteInboxArchiveResponse, error) {
+		bodyBytes := resp.Content
+		if resp.StatusCode != 200 {
+			target := new(ExecuteInboxArchiveErrorResponse)
+			// Handle empty error response body gracefully - skip unmarshal if no content
+			if len(bodyBytes) > 0 {
+				if err = json.Unmarshal(bodyBytes, target); err != nil {
+					return nil, &runtime.ResponseDecodeError{
+						StatusCode:    resp.StatusCode,
+						ContentType:   resp.Headers.Get("Content-Type"),
+						ContentLength: len(bodyBytes),
+						TargetType:    "ExecuteInboxArchiveErrorResponse",
+						Body:          bodyBytes,
+						Err:           err,
+					}
+				}
+			}
+			// Return error with (possibly empty) target
+			if errTarget, ok := any(*target).(error); ok {
+				return nil, runtime.NewClientAPIError(errTarget, runtime.WithStatusCode(resp.StatusCode))
+			}
+			return nil, runtime.NewClientAPIError(fmt.Errorf("API error (status %d): %v", resp.StatusCode, *target),
+				runtime.WithStatusCode(resp.StatusCode))
+		}
+		target := new(ExecuteInboxArchiveResponse)
+		// Handle empty response body gracefully
+		if len(bodyBytes) == 0 {
+			return target, nil
+		}
+		if err = json.Unmarshal(bodyBytes, target); err != nil {
+			return nil, &runtime.ResponseDecodeError{
+				StatusCode:    resp.StatusCode,
+				ContentType:   resp.Headers.Get("Content-Type"),
+				ContentLength: len(bodyBytes),
+				TargetType:    "ExecuteInboxArchiveResponse",
+				Body:          bodyBytes,
+				Err:           err,
+			}
+		}
+		return target, nil
+	}
+
+	resp, err := c.apiClient.ExecuteRequest(ctx, req, "/api/v1/inbox-archive/execute")
 	if err != nil {
 		return nil, fmt.Errorf("error executing request: %w", err)
 	}

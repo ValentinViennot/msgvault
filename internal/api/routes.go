@@ -513,6 +513,15 @@ func (s *Server) registerHumaRoutes(api huma.API, apiV1 huma.API) {
 	registerAPIV1RawHumaJSONRoute[CancelDeletionResponse](
 		apiV1, "cancelDeletion", http.MethodDelete, "/deletions/{id}",
 		"Cancel a staged deletion manifest", s.handleCancelDeletion)
+
+	registerAPIV1RawHumaJSONRouteWithRequest[InboxArchiveAuthorizeRequest, InboxArchiveAuthorizeResponse](
+		apiV1, "authorizeInboxArchive", http.MethodPost, strings.TrimPrefix(inboxArchiveAuthorizePath, "/api/v1"),
+		"Mint a confirmation token for removing messages from the inbox",
+		s.handleInboxArchiveAuthorize)
+	registerAPIV1RawHumaJSONRouteWithRequest[InboxArchiveExecuteRequest, InboxArchiveExecuteResponse](
+		apiV1, "executeInboxArchive", http.MethodPost, strings.TrimPrefix(inboxArchiveExecutePath, "/api/v1"),
+		"Remove confirmed messages from the inbox at the mail provider",
+		s.handleInboxArchiveExecute)
 }
 
 func registerAPIV1RawHumaJSONRoute[T any](

@@ -26,6 +26,8 @@ import (
 	"go.kenn.io/msgvault/internal/discord"
 	"go.kenn.io/msgvault/internal/gmail"
 	"go.kenn.io/msgvault/internal/granola"
+	imaplib "go.kenn.io/msgvault/internal/imap"
+	"go.kenn.io/msgvault/internal/inboxarchive"
 	"go.kenn.io/msgvault/internal/meetingimport"
 	"go.kenn.io/msgvault/internal/microsoft"
 	"go.kenn.io/msgvault/internal/notionmeetings"
@@ -601,6 +603,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		analyticsDir:           cfg.AnalyticsDir(),
 		personEnrichmentConfig: cfg.People.Enrichment,
 		lookupEnv:              personEnrichmentEnvironmentLookup(cfg),
+		operationGate:          operationGate,
 	}
 	schedAdapter := &schedulerAdapter{scheduler: sched}
 
@@ -1218,6 +1221,9 @@ type storeAPIAdapter struct {
 	analyticsDir           string
 	personEnrichmentConfig personenrichment.Config
 	lookupEnv              personenrichment.CredentialLookup
+	// operationGate is consulted between inbox-archive chunks so a long run
+	// steps aside for a waiting API request instead of holding the gate.
+	operationGate api.OperationGate
 }
 
 var _ api.MessageStore = (*storeAPIAdapter)(nil)
@@ -3563,4 +3569,85 @@ func scheduledTeamsImportOptions(email string) teams.ImportOptions {
 		MediaPolicy:     cfg.Teams.MediaPolicy(email),
 		IncludeChannels: true,
 	}
+}
+
+// inboxArchiveChunkSize is how many messages one provider call carries. Gmail's
+// batchModify takes a thousand at a time; a provider that has to act on each
+// message separately gets a smaller chunk so a run reaches its yield check
+// often enough to let a waiting request through.
+func inboxArchiveChunkSize(sourceType string) int {
+	if sourceType == sourceTypeIMAP {
+		return 50
+	}
+	return inboxarchive.DefaultChunkSize
+}
+
+// RunInboxArchive removes messages from one source's inbox at the provider.
+//
+// It lives here rather than in internal/api because building an authenticated
+// provider client needs the OAuth managers and config that package deliberately
+// does not import; the API layer reaches it through the InboxArchiveRunner seam,
+// the same way it reaches CLI sync and deletion staging.
+func (a *storeAPIAdapter) RunInboxArchive(
+	ctx context.Context, req api.InboxArchiveRunRequest,
+) (api.InboxArchiveRunResult, error) {
+	var empty api.InboxArchiveRunResult
+
+	src, err := a.store.GetSourceByIDContext(ctx, req.SourceID)
+	if err != nil {
+		return empty, fmt.Errorf("resolve source %d: %w", req.SourceID, err)
+	}
+	if src == nil {
+		return empty, fmt.Errorf("source %d not found", req.SourceID)
+	}
+
+	var imapOpts []imaplib.Option
+	if src.SourceType == sourceTypeIMAP {
+		imapOpts = imapFolderStateOptions(a.store, src, false)
+	}
+	client, err := buildAPIClient(ctx, src, oauthManagerCache(), nil, imapOpts...)
+	if err != nil {
+		return empty, fmt.Errorf("build %s client: %w", src.SourceType, err)
+	}
+	defer func() { _ = client.Close() }()
+
+	archiver, err := inboxarchive.For(client, a.store)
+	if errors.Is(err, inboxarchive.ErrNotSupported) {
+		return empty, api.ErrInboxArchiveUnsupportedSource
+	}
+	if err != nil {
+		return empty, err
+	}
+
+	result, err := archiver.
+		WithLogger(logger).
+		WithChunkSize(inboxArchiveChunkSize(src.SourceType)).
+		WithYieldCheck(a.inboxArchiveYieldCheck()).
+		Archive(ctx, src, req.SourceMessageIDs)
+
+	out := api.InboxArchiveRunResult{
+		Archived:  result.Archived,
+		Failed:    result.Failed,
+		Remaining: result.Remaining,
+		FailedIDs: result.FailedIDs,
+		Yielded:   result.Yielded,
+	}
+	if err != nil {
+		// The messages already archived stay archived, so the partial counts
+		// are reported rather than discarded with the error.
+		return out, err
+	}
+	return out, nil
+}
+
+// inboxArchiveYieldCheck lets a long run step aside for a waiting API request
+// instead of holding the serial operation gate to the end. Stopping early is
+// safe: an archived message leaves the caller's inbox-scoped selection, so the
+// next call continues rather than repeating work.
+func (a *storeAPIAdapter) inboxArchiveYieldCheck() func() bool {
+	gate, ok := a.operationGate.(api.LabeledOperationGate)
+	if !ok {
+		return nil
+	}
+	return gate.HasRequestWaiters
 }

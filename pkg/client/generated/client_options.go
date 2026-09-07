@@ -4393,6 +4393,94 @@ func (o *GetImportJobRequestOptions) GetHeader() (map[string]string, error) {
 	return nil, nil
 }
 
+// AuthorizeInboxArchiveRequestOptions is the options needed to make a request to AuthorizeInboxArchive.
+type AuthorizeInboxArchiveRequestOptions struct {
+	Body *AuthorizeInboxArchiveBody
+}
+
+// Validate validates all the fields in the options.
+// Use it if fields validation was not run.
+func (o *AuthorizeInboxArchiveRequestOptions) Validate() error {
+	var errors runtime.ValidationErrors
+
+	if o.Body != nil {
+		if v, ok := any(o.Body).(runtime.Validator); ok {
+			if err := v.Validate(); err != nil {
+				errors = errors.Append("Body", err)
+			}
+		}
+	}
+	if len(errors) == 0 {
+		return nil
+	}
+
+	return errors
+}
+
+// GetPathParams returns the path params as a map.
+func (o *AuthorizeInboxArchiveRequestOptions) GetPathParams() (map[string]any, error) {
+	return nil, nil
+}
+
+// GetQuery returns the query params as a map.
+func (o *AuthorizeInboxArchiveRequestOptions) GetQuery() (map[string]any, error) {
+	return nil, nil
+}
+
+// GetBody returns the payload in any type that can be marshalled to JSON by the client.
+func (o *AuthorizeInboxArchiveRequestOptions) GetBody() any {
+	return o.Body
+}
+
+// GetHeader returns the headers as a map.
+func (o *AuthorizeInboxArchiveRequestOptions) GetHeader() (map[string]string, error) {
+	return nil, nil
+}
+
+// ExecuteInboxArchiveRequestOptions is the options needed to make a request to ExecuteInboxArchive.
+type ExecuteInboxArchiveRequestOptions struct {
+	Body *ExecuteInboxArchiveBody
+}
+
+// Validate validates all the fields in the options.
+// Use it if fields validation was not run.
+func (o *ExecuteInboxArchiveRequestOptions) Validate() error {
+	var errors runtime.ValidationErrors
+
+	if o.Body != nil {
+		if v, ok := any(o.Body).(runtime.Validator); ok {
+			if err := v.Validate(); err != nil {
+				errors = errors.Append("Body", err)
+			}
+		}
+	}
+	if len(errors) == 0 {
+		return nil
+	}
+
+	return errors
+}
+
+// GetPathParams returns the path params as a map.
+func (o *ExecuteInboxArchiveRequestOptions) GetPathParams() (map[string]any, error) {
+	return nil, nil
+}
+
+// GetQuery returns the query params as a map.
+func (o *ExecuteInboxArchiveRequestOptions) GetQuery() (map[string]any, error) {
+	return nil, nil
+}
+
+// GetBody returns the payload in any type that can be marshalled to JSON by the client.
+func (o *ExecuteInboxArchiveRequestOptions) GetBody() any {
+	return o.Body
+}
+
+// GetHeader returns the headers as a map.
+func (o *ExecuteInboxArchiveRequestOptions) GetHeader() (map[string]string, error) {
+	return nil, nil
+}
+
 // SearchIntegrationTasksRequestOptions is the options needed to make a request to SearchIntegrationTasks.
 type SearchIntegrationTasksRequestOptions struct {
 	Query *SearchIntegrationTasksQuery

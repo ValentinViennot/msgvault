@@ -440,6 +440,7 @@ type Config struct {
 	People         PeopleConfig                    `toml:"people"`
 	Teams          TeamsConfig                     `toml:"teams"`
 	Deletion       DeletionConfig                  `toml:"deletion"`
+	InboxArchive   InboxArchiveConfig              `toml:"inbox_archive"`
 
 	// Computed paths (not from config file)
 	HomeDir    string `toml:"-"`
@@ -448,6 +449,18 @@ type Config struct {
 
 // DeletionConfig records durable operator consent for remote deletion.
 type DeletionConfig struct {
+	RemoteEnabled bool `toml:"remote_enabled"`
+}
+
+// InboxArchiveConfig records durable operator consent for removing messages
+// from the inbox at the mail provider.
+//
+// This is the daemon's own opt-in and is separate from the MCP server's
+// --allow-mailbox-writes flag. Both are required: the MCP flag decides whether
+// a model may ask, and this decides whether the daemon will act. Keeping them
+// apart is what preserves the property that enabling one client's tool does not
+// hand mailbox-mutation to everything else holding the daemon's API key.
+type InboxArchiveConfig struct {
 	RemoteEnabled bool `toml:"remote_enabled"`
 }
 

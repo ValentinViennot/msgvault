@@ -104,6 +104,10 @@ type ImportMeetingBody = MeetingImportRequest
 
 type CreateImportJobBody = ImportJobRequest
 
+type AuthorizeInboxArchiveBody = InboxArchiveAuthorizeRequest
+
+type ExecuteInboxArchiveBody = InboxArchiveExecuteRequest
+
 type CreateOrLinkMessageTaskBody = TaskLinkMutationRequest
 
 type StartVisualAttachmentBuildBody = VisualBuildRequest

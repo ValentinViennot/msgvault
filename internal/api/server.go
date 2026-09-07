@@ -273,6 +273,8 @@ type Server struct {
 	visualCoverageRateLimiter *RateLimiter
 	idleTracker               *IdleTracker
 	operationGate             OperationGate
+	inboxArchive              InboxArchiveRunner
+	spentInboxArchiveTokens   spentInboxArchiveTokens
 	operationHistoryReader    operations.HistoryReader
 	importContext             context.Context
 	cancelImports             context.CancelFunc
@@ -475,6 +477,13 @@ type ServerOptions struct {
 	Logger        *slog.Logger
 	IdleTracker   *IdleTracker
 	OperationGate OperationGate
+	// InboxArchive removes messages from a mail account's inbox at the
+	// provider. It stays out of MessageStore because building an
+	// authenticated provider client needs config and OAuth managers this
+	// package does not import; when nil, the daemon falls back to a Store that
+	// implements InboxArchiveRunner, and otherwise reports the capability as
+	// unavailable.
+	InboxArchive InboxArchiveRunner
 	// OperationHistoryReader owns the normalized, privacy-bounded operation
 	// ledgers. It stays separate from MessageStore so unsupported stores can
 	// expose an explicit unavailable contract instead of implementing unrelated
@@ -563,6 +572,7 @@ func NewServerWithOptions(opts ServerOptions) *Server {
 		daemonVersion:            opts.DaemonVersion,
 		idleTracker:              opts.IdleTracker,
 		operationGate:            opts.OperationGate,
+		inboxArchive:             opts.InboxArchive,
 		operationHistoryReader:   opts.OperationHistoryReader,
 		importContext:            importContext,
 		cancelImports:            cancelImports,
