@@ -110,9 +110,13 @@ the person's role decides which tools appear.
 Claude Code and claude.ai connectors identify themselves with Client ID
 Metadata Documents, so no client registration is needed when the provider
 accepts them: allow Claude's document URLs at the provider (Pocket ID:
-*Application Configuration → OIDC → Allowed metadata document URLs*, for
-example `https://claude.ai/*`), grant metadata-document clients the two
-permissions on the API resource, and adding the MCP URL in Claude is enough.
+*Application Configuration → OIDC → Allowed metadata document URLs*), grant
+metadata-document clients the two permissions on the API resource, and adding
+the MCP URL in Claude is enough. The documents are
+`https://claude.ai/oauth/mcp-oauth-client-metadata` for claude.ai, Claude
+Desktop and mobile, and `https://claude.ai/oauth/claude-code-client-metadata`
+for Claude Code; list them exactly, because a provider's wildcard may not span
+path segments (Pocket ID's `https://claude.ai/*` matches neither).
 
 Without metadata documents, Claude Code connects with a client registered at
 the provider (a public client with PKCE and Claude Code's localhost callback):
