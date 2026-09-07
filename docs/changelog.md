@@ -49,7 +49,8 @@ All notable changes to msgvault, grouped by release.
   access tokens authenticate API requests and `msgvault mcp --http`, which now
   publishes RFC 9728 protected-resource metadata so Claude Code and claude.ai
   connectors sign in through the provider; tokens need the `msgvault:read`
-  scope and `msgvault:write` for mutations. Sign-ins are recorded in new
+  scope and `msgvault:write` for mutations, and clients are asked for both
+  alongside the identity scopes. Sign-ins are recorded in new
   `users` and `user_identities` tables. `[auth.oidc]`, `[auth] api_key_login`,
   and `[server] trusted_proxies` accept environment overrides
   (`MSGVAULT_AUTH_OIDC_*`, `MSGVAULT_AUTH_API_KEY_LOGIN`,

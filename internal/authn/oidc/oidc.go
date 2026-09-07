@@ -176,6 +176,20 @@ func (p *Provider) Name() string { return p.cfg.ProviderName }
 // Config returns the validated configuration.
 func (p *Provider) Config() Config { return p.cfg }
 
+// BearerScopes lists what an MCP client should request: the configured
+// identity scopes first, because providers answer userinfo only for tokens
+// granted openid and the resource server resolves the person through it when
+// the access token carries no email or groups, then the API permissions.
+func (p *Provider) BearerScopes() []string {
+	scopes := slices.Clone(p.cfg.Scopes)
+	for _, scope := range []string{ScopeRead, ScopeWrite} {
+		if !slices.Contains(scopes, scope) {
+			scopes = append(scopes, scope)
+		}
+	}
+	return scopes
+}
+
 // CallbackURL is the redirect URI registered with the provider.
 func (p *Provider) CallbackURL() string {
 	return strings.TrimRight(p.cfg.PublicURL, "/") + "/api/session/oidc/callback"

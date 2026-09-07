@@ -673,7 +673,11 @@ provider_name = "Example ID"                 # login button label
 
 Access tokens must carry the `msgvault:read` scope, and `msgvault:write`
 for mutations; configure the provider's API resource with those two
-permissions. A person whose groups map to no role cannot sign in even with a
+permissions. MCP clients are asked for both together with the configured
+identity scopes (`openid profile email groups` by default): providers answer
+userinfo only for tokens granted `openid`, and the sidecar resolves the
+person through it when the token itself carries no email or groups. The
+person's role still bounds what a token can do. A person whose groups map to no role cannot sign in even with a
 valid token. Each sign-in is recorded in the `users` table with the role
 derived at that moment; disabling a user there blocks further browser logins.
 

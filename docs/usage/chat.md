@@ -103,10 +103,28 @@ the provider's access tokens. MCP clients discover the authorization server
 from that document and sign the user in through the provider; the tools they
 see follow the user's role and the token's `msgvault:read` / `msgvault:write`
 scopes. Register an API resource named by the same URL at the provider with
-those two permissions.
+those two permissions. The challenge asks clients for both permissions
+together with the identity scopes, so one consent covers reads and writes and
+the person's role decides which tools appear.
 
-Claude Code connects with a client registered at the provider (a public client
-with PKCE and Claude Code's localhost callback):
+Claude Code and claude.ai connectors identify themselves with Client ID
+Metadata Documents, so no client registration is needed when the provider
+accepts them: allow Claude's document URLs at the provider (Pocket ID:
+*Application Configuration → OIDC → Allowed metadata document URLs*), grant
+metadata-document clients the two permissions on the API resource, and adding
+the MCP URL in Claude is enough. The documents are
+`https://claude.ai/oauth/mcp-oauth-client-metadata` for claude.ai, Claude
+Desktop and mobile, and `https://claude.ai/oauth/claude-code-client-metadata`
+for Claude Code; list them exactly, because a provider's wildcard may not span
+path segments (Pocket ID's `https://claude.ai/*` matches neither).
+
+Sign in to the Web UI once before connecting an MCP client: the daemon creates
+your user at that first sign-in, and MCP calls act as that user. Until then
+every tool call fails with "acting user is not a known user", which MCP
+clients surface as an internal error.
+
+Without metadata documents, Claude Code connects with a client registered at
+the provider (a public client with PKCE and Claude Code's localhost callback):
 
 ```bash
 claude mcp add --transport http msgvault https://mcp.example.com/mcp \
