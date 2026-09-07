@@ -5,7 +5,7 @@
     patchUser as generatedPatchUser,
     setUserSources as generatedSetUserSources,
   } from '../../api/generated/api/api';
-  import { Button } from '@kenn-io/kit-ui';
+  import { Button, Checkbox } from '@kenn-io/kit-ui';
   import { onMount } from 'svelte';
   import type { APIClient } from '../../api/client';
   import type { SourceStatus, UserSummary } from '../../api/generated/models';
@@ -131,16 +131,12 @@
               </td>
               {#each sources as source (source.id)}
                 <td>
-                  <label class="source">
-                    <input
-                      type="checkbox"
-                      checked={user.role === 'admin' || user.source_ids.includes(source.id)}
-                      disabled={user.role === 'admin' || busyUser === user.id}
-                      aria-label={`${user.email} sees ${sourceLabel(source)}`}
-                      onchange={(event) =>
-                        void setSource(user, source.id, (event.currentTarget as HTMLInputElement).checked)}
-                    />
-                  </label>
+                  <Checkbox
+                    checked={user.role === 'admin' || user.source_ids.includes(source.id)}
+                    disabled={user.role === 'admin' || busyUser === user.id}
+                    ariaLabel={`${user.email} sees ${sourceLabel(source)}`}
+                    onchange={(checked) => void setSource(user, source.id, checked)}
+                  />
                 </td>
               {/each}
             </tr>
