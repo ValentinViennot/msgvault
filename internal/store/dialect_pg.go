@@ -2320,6 +2320,9 @@ var exclusiveLockTables = []string{
 	"sync_operations",
 	"source_import_items", "sync_run_items", "sync_checkpoints",
 	"imap_folder_state", "imap_message_memberships",
+	// Per-user source visibility cascades from sources, so a serialized
+	// source removal deletes these rows and must hold the table.
+	"user_sources",
 }
 
 // BeginExclusive opens a transaction on conn and locks every table the
