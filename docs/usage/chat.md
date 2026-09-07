@@ -3,7 +3,9 @@ title: MCP Server
 description: Expose your email, chat, calendar, and meeting archive to AI assistants via MCP.
 ---
 
-The MCP server operates on your msgvault archive through the selected daemon, not your live Gmail account. Without `[remote].url`, `msgvault mcp` starts or reuses the local background daemon; with `[remote].url`, it uses that remote server. The AI cannot send emails, modify labels, or access your Google credentials. Standard read and search operations go through the daemon. If [vector search](/docs/usage/vector-search/) is enabled, semantic and hybrid searches also call the embedding endpoint configured in `[vector.embeddings]`; use a local or self-hosted endpoint if message text must stay on your machine or network. The `stage_deletion` tool asks the selected daemon to save a deletion manifest, and `export_attachment` saves an attachment to a requested path on the MCP server's filesystem. Neither modifies the database, and actual deletion still requires you to run `msgvault delete-staged` from the CLI. You control when data enters the archive (via sync and import commands) and when anything is deleted (via the explicit [deletion workflow](/docs/usage/deletion/)). Compared to giving an AI assistant direct OAuth access to your mailbox, this is a fundamentally smaller attack surface.
+The MCP server operates on your msgvault archive through the selected daemon, not your live Gmail account. Without `[remote].url`, `msgvault mcp` starts or reuses the local background daemon; with `[remote].url`, it uses that remote server. The AI never sees your Google credentials, and by default it cannot change anything at your mail provider: every tool reads the local archive. Standard read and search operations go through the daemon. If [vector search](/docs/usage/vector-search/) is enabled, semantic and hybrid searches also call the embedding endpoint configured in `[vector.embeddings]`; use a local or self-hosted endpoint if message text must stay on your machine or network. The `stage_deletion` tool asks the selected daemon to save a deletion manifest, and `export_attachment` saves an attachment to a requested path on the MCP server's filesystem. Neither modifies the database, and actual deletion still requires you to run `msgvault delete-staged` from the CLI. You control when data enters the archive (via sync and import commands) and when anything is deleted (via the explicit [deletion workflow](/docs/usage/deletion/)).
+
+There is exactly one exception, and it is off unless you turn it on twice: [`archive_from_inbox`](#archiving-your-inbox-via-mcp) removes messages from your inbox at the provider. It deletes nothing and is reversible, but it does change your live mailbox, so it requires both `msgvault mcp --allow-mailbox-writes` and `[inbox_archive] remote_enabled = true` in the daemon's config. With either unset, the tool is not offered and the daemon refuses the request. Compared to giving an AI assistant direct OAuth access to your mailbox, this is a fundamentally smaller attack surface.
 
 ## Setup
 
@@ -105,6 +107,7 @@ The MCP server exposes the following tools to connected AI clients:
 | `get_stats` | Archive overview statistics. Includes vector index state when configured. | — |
 | `aggregate` | Grouped statistics (top senders, domains, labels, or message volume by calendar year) | `group_by` (string: sender/recipient/domain/label/time), `limit` (int), `after` (string), `before` (string), `account` (string) |
 | `stage_deletion` | Stage messages for deletion (creates manifest only) | `query` (string) OR structured filters: `from` (string), `domain` (string), `label` (string), `after` (string), `before` (string), `has_attachment` (bool); optional: `account` (string) |
+| `archive_from_inbox` | Remove messages from your inbox at the mail provider. Disabled unless both opt-ins are set. Called without `confirm` it returns a plan and changes nothing. | `query` (string) OR structured filters: `from` (string), `domain` (string), `label` (string), `after` (string), `before` (string), `has_attachment` (bool); optional: `account` (string), `confirm` (bool), `confirmation_token` (string) |
 | `get_person_profile` | One durable person's overview from local derived state: display name, tracking, contact state (first/last contact, last inbound and outbound, interaction count, inferred channel), the curated `primary_channel`, non-sensitive attributes, current employment, typed relationships, contact points, dates, and categories. Excludes sensitive attributes, private Notes, addresses, and media; makes no provider calls. | `person_id` (int, required) |
 
 `search_metadata`, `search_message_bodies`, `semantic_search_messages`, and `list_messages` return paginated JSON. `search_metadata` reports an exact `total`; `search_message_bodies`, `semantic_search_messages`, and `list_messages` return `total = -1` because they do not run a separate count query:
@@ -208,6 +211,77 @@ The tool returns the batch ID, message count, and next steps:
 }
 ```
 
+## Archiving Your Inbox via MCP
+
+`archive_from_inbox` removes messages from your inbox at the mail provider —
+Gmail's "Archive", and on IMAP a move into the account's archive folder. It
+deletes nothing: archived messages keep every other label, stay searchable at
+the provider, and stay in your local archive. It is reversible from your mail
+client.
+
+It is also the only msgvault MCP tool that changes anything outside the local
+archive, so it is off unless you enable it in **both** places:
+
+```bash
+# 1. Let a model ask. Per session, on the MCP server.
+msgvault mcp --allow-mailbox-writes
+```
+
+```toml
+# 2. Let the daemon act. In the daemon's config.toml.
+[inbox_archive]
+remote_enabled = true
+```
+
+The two are separate on purpose. The flag decides whether the tool is offered to
+a model at all; the config decides whether the daemon will carry it out. The
+daemon endpoint is reachable by anything holding your API key, not only the MCP
+server, so enabling the flag alone does not hand mailbox access to every other
+client — and with the config unset, the daemon refuses whoever asks.
+
+### The plan-then-confirm cycle
+
+The tool is one endpoint with two phases. Called without `confirm`, it changes
+nothing and returns a plan: how many messages match, a sample of real subjects
+and senders so you can see whether the selection is what you meant, and a
+one-shot `confirmation_token`.
+
+```json
+{
+  "status": "plan",
+  "account": "you@gmail.com",
+  "selection": "query: label:INBOX from:newsletter before:2024-01-01",
+  "message_count": 412,
+  "sample": [
+    {"from": "news@example.com", "subject": "Weekly digest", "sent_at": "2023-11-04"}
+  ],
+  "confirmation_token": "op2....",
+  "next_step": "Show this plan to the user. Only if they explicitly agree, call archive_from_inbox again with the same selection, confirm=true and that token. Nothing has changed yet."
+}
+```
+
+The token is bound to that exact set of messages and can be spent once. If the
+selection changes between the plan and your answer, the token is refused and the
+assistant has to show you a fresh plan — so what you approved is what happens.
+
+Add `label:INBOX` to your selection. Archiving a message that has already left
+the inbox is harmless, but including such messages inflates the count in the
+plan and makes it harder to see what you are agreeing to.
+
+At most 1000 messages are archived per call. Larger selections report how many
+remain; repeat the cycle to continue. Interrupting a run is safe — messages
+already archived drop out of an inbox-scoped selection, so the next call picks
+up where the last one stopped.
+
+### Provider support
+
+| Source | Supported | Notes |
+|---|---|---|
+| Gmail (OAuth) | Yes | One `batchModify` removing the `INBOX` label. No new OAuth scope: `gmail.modify` is already part of the standard grant. Accounts added with `add-account --readonly` are refused. |
+| IMAP | Yes | One `UID MOVE` per message into the `\Archive` mailbox, or a folder named `Archive`/`Archived`/`Archives`. Messages with no `Message-ID` header are skipped, because the archive could not rejoin them to their existing row after the move. |
+| Gmail over IMAP | No | These accounts sync from All Mail, never from INBOX, so the inbox copy is not addressable over IMAP. Add the account with OAuth instead. |
+| Everything else | No | Slack, Teams, imported archives and the like return `unsupported_source`. |
+
 ## CLI Flags
 
 ```bash
@@ -224,6 +298,9 @@ msgvault mcp --http 8080
 | `--no-sqlite-scanner` | `false` | Deprecated in 0.17.0; cache engine selection is daemon-managed. Use `[analytics].engine = "sql"` for live SQL. |
 | `--http` | — | Serve over MCP StreamableHTTP instead of stdio. Bare ports bind to `127.0.0.1`; non-loopback addresses require `[server].api_key` or `--http-allow-insecure`. |
 | `--http-allow-insecure` | `false` | Allow non-loopback HTTP binding without `[server].api_key`. A configured key is still enforced. Without a key, use only behind your own network or authentication layer. |
+| `--http-allow-writes` | `false` | Expose write-class tools (`export_attachment`, `stage_deletion`) over HTTP. They are always exposed over stdio. |
+| `--allow-profile-writes` | `false` | Expose `promote_person` and private Notes writes. |
+| `--allow-mailbox-writes` | `false` | Expose [`archive_from_inbox`](#archiving-your-inbox-via-mcp), which changes your live mailbox. The daemon needs `[inbox_archive] remote_enabled = true` as well. |
 
 Deprecated in 0.17.0: MCP analytics behavior moved from per-command flags to daemon configuration. Use `[analytics].engine` and `[analytics].auto_build_cache` in `config.toml` so local and remote daemon behavior stays consistent.
 

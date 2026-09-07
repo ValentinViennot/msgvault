@@ -1840,6 +1840,9 @@ msgvault mcp [flags]
 | `--no-sqlite-scanner` | `false` | Deprecated in 0.17.0; cache engine selection is daemon-managed. Use `[analytics].engine = "sql"` for live SQL. |
 | `--http` | — | Serve MCP over StreamableHTTP on this address instead of stdio. Bare ports bind to loopback, e.g. `8080` becomes `127.0.0.1:8080`. Non-loopback addresses require `[server].api_key` or `--http-allow-insecure`. |
 | `--http-allow-insecure` | `false` | Allow non-loopback HTTP binding without `[server].api_key`. A configured key is still enforced; without one, use only behind a trusted network boundary or authenticated reverse proxy. |
+| `--http-allow-writes` | `false` | Expose write-class MCP tools (`export_attachment`, `stage_deletion`) over HTTP. They are always exposed over stdio. |
+| `--allow-profile-writes` | `false` | Expose person promotion and private Notes writes. |
+| `--allow-mailbox-writes` | `false` | Expose `archive_from_inbox`, which removes messages from your live inbox at the mail provider. The daemon also needs `[inbox_archive] remote_enabled = true`. |
 
 See [MCP Server](/docs/usage/chat/) for configuration and tool reference.
 

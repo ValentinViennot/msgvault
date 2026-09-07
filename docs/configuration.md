@@ -109,6 +109,11 @@ zstd_level = 0
 # defaults to false.
 remote_enabled = false
 
+[inbox_archive]
+# Durable consent for removing messages from the inbox at the mail
+# provider. Read by the daemon, defaults to false.
+remote_enabled = false
+
 [remote]
 # Remote msgvault endpoint for CLI remote mode
 url = "http://nas-ip:8080"
@@ -202,6 +207,24 @@ Consent belongs to the invoking CLI. When a command uses a remote daemon, the
 CLI forwards its effective consent for that operation; the remote daemon's own
 `[deletion]` section is not server policy for a command invoked elsewhere.
 Staging, listing, inspecting, and dry-running deletion batches remain ungated.
+
+## Inbox Archive Consent
+
+Removing messages from your inbox at the mail provider is reversible and deletes
+nothing, but it is still a change to a mailbox msgvault otherwise only reads, so
+it stays opt-in. Two independent switches are required, and both default to off:
+
+- `[inbox_archive] remote_enabled = true` in the **daemon's** config. This is
+  what permits the daemon to act, and it applies to every client that reaches it
+  — the web UI, the CLI, and the MCP server alike.
+- `msgvault mcp --allow-mailbox-writes` on the **MCP server**. This is what
+  offers the `archive_from_inbox` tool to a model at all.
+
+Keeping them apart means enabling the tool for one assistant does not quietly
+grant mailbox access to everything else holding your API key, and that a daemon
+you have not opted in on refuses the operation no matter who asks. See
+[MCP Server](/docs/usage/chat/#archiving-your-inbox-via-mcp) for the
+plan-then-confirm cycle and provider support.
 
 ## People sweep inference
 
