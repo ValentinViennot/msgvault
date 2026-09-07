@@ -5854,7 +5854,7 @@ func (e *contextErrorTextEngine) ListConversationMessages(context.Context, int64
 	return nil, fmt.Errorf("acquire query slot: %w", e.err)
 }
 
-func (e *contextErrorTextEngine) TextSearch(context.Context, string, int, int) ([]query.MessageSummary, error) {
+func (e *contextErrorTextEngine) TextSearch(context.Context, string, *int64, int, int) ([]query.MessageSummary, error) {
 	return nil, fmt.Errorf("acquire query slot: %w", e.err)
 }
 
@@ -5878,7 +5878,7 @@ func (*textEngineWithoutSnapshot) ListConversationMessages(context.Context, int6
 	return []query.MessageSummary{}, nil
 }
 
-func (*textEngineWithoutSnapshot) TextSearch(context.Context, string, int, int) ([]query.MessageSummary, error) {
+func (*textEngineWithoutSnapshot) TextSearch(context.Context, string, *int64, int, int) ([]query.MessageSummary, error) {
 	return nil, nil
 }
 
@@ -8240,4 +8240,108 @@ func TestStatsReportsTextLaneSeparatelyFromMultimodal(t *testing.T) {
 		"a multimodal-only daemon must not advertise text-vector capability")
 	assert.Equal("ready", resp.VectorVisualStatus,
 		"the visual lane reports its own readiness for MCP capability probes")
+}
+
+func TestHandleAggregatesEchoesNormalizedSourceIDs(t *testing.T) {
+	srv := newTestServerWithEngine(t, &querytest.MockEngine{})
+	w := doGet(srv, "/api/v1/aggregates?view_type=senders&source_id=99&source_ids=8,7&source_ids=8")
+
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var response map[string]any
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&response))
+	assert.Equal(t, []any{float64(7), float64(8)}, response["applied_source_ids"])
+}
+
+func TestHandleFilteredMessagesUsesSourceIDsAndEchoesThem(t *testing.T) {
+	assertions := assert.New(t)
+	requirements := require.New(t)
+	var captured query.MessageFilter
+	engine := &querytest.MockEngine{
+		ListMessagesFunc: func(_ context.Context, filter query.MessageFilter) ([]query.MessageSummary, error) {
+			captured = filter
+			return []query.MessageSummary{}, nil
+		},
+	}
+	srv := newTestServerWithEngine(t, engine)
+	w := doGet(srv, "/api/v1/messages/filter?source_id=99&source_ids=8,7&source_ids=8")
+
+	requirements.Equal(http.StatusOK, w.Code, w.Body.String())
+	assertions.Equal([]int64{7, 8}, captured.SourceIDs)
+	requirements.NotNil(captured.SourceID)
+	assertions.Equal(int64(99), *captured.SourceID)
+	var response map[string]any
+	requirements.NoError(json.NewDecoder(w.Body).Decode(&response))
+	assertions.Equal([]any{float64(7), float64(8)}, response["applied_source_ids"])
+}
+
+func TestHandleDeepSearchRejectsSourceIDs(t *testing.T) {
+	called := false
+	engine := &querytest.MockEngine{
+		SearchFunc: func(_ context.Context, _ *search.Query, _, _ int) ([]query.MessageSummary, error) {
+			called = true
+			return nil, nil
+		},
+	}
+	srv := newTestServerWithEngine(t, engine)
+	w := doGet(srv, "/api/v1/search/deep?q=needle&source_ids=7,8")
+
+	assert.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+	assert.False(t, called)
+}
+
+func TestHandleGmailIDsEchoesSourceIDs(t *testing.T) {
+	assertions := assert.New(t)
+	requirements := require.New(t)
+	var captured query.MessageFilter
+	engine := &querytest.MockEngine{
+		GetDeletionTargetsByFilterFunc: func(_ context.Context, filter query.MessageFilter) ([]query.DeletionTarget, error) {
+			captured = filter
+			return []query.DeletionTarget{}, nil
+		},
+	}
+	srv := newTestServerWithEngine(t, engine)
+	w := doGet(srv, "/api/v1/messages/gmail-ids?source_ids=8,7")
+
+	requirements.Equal(http.StatusOK, w.Code, w.Body.String())
+	assertions.Equal([]int64{7, 8}, captured.SourceIDs)
+	var response map[string]any
+	requirements.NoError(json.NewDecoder(w.Body).Decode(&response))
+	assertions.Equal([]any{float64(7), float64(8)}, response["applied_source_ids"])
+}
+
+func TestDaemonTextSearchScopesBeforePagination(t *testing.T) {
+	require := require.New(t)
+	db := dbtest.NewTestDB(t, "../store/schema.sql")
+	_, err := db.DB.Exec(`
+		INSERT INTO sources (id, source_type, identifier) VALUES
+			(1, 'imessage', 'first@example.com'), (2, 'imessage', 'second@example.com');
+		INSERT INTO conversations (id, source_id, source_conversation_id, conversation_type) VALUES
+			(1, 1, 'chat-1', 'direct_chat'), (2, 2, 'chat-2', 'direct_chat');
+		INSERT INTO messages (id, conversation_id, source_id, source_message_id, message_type, sent_at, subject) VALUES
+			(1, 1, 1, 'message-1', 'imessage', '2026-01-01 10:00:00', 'hello first'),
+			(2, 2, 2, 'message-2', 'imessage', '2026-01-01 11:00:00', 'hello second');
+		CREATE VIRTUAL TABLE messages_fts USING fts5(subject, body);
+		INSERT INTO messages_fts (rowid, subject, body) VALUES
+			(1, 'hello first', ''), (2, 'hello second', '');
+	`)
+	require.NoError(err)
+
+	srv := newTestServerWithEngine(t, query.NewSQLiteEngine(db.DB))
+	daemon := httptest.NewServer(srv.Router())
+	t.Cleanup(daemon.Close)
+	engine, err := daemonclient.NewEngine(daemonclient.Config{
+		URL: daemon.URL, AllowInsecure: true, HTTPClient: daemon.Client(),
+	})
+	require.NoError(err)
+	t.Cleanup(func() { assert.NoError(t, engine.Close()) })
+
+	messages, err := engine.TextSearch(t.Context(), "hello", new(int64(1)), 1, 0)
+	require.NoError(err)
+	require.Len(messages, 1)
+	assert.Equal(t, int64(1), messages[0].ID)
+
+	messages, err = engine.TextSearch(t.Context(), "hello", nil, 1, 0)
+	require.NoError(err)
+	require.Len(messages, 1)
+	assert.Equal(t, int64(2), messages[0].ID)
 }
