@@ -55,6 +55,26 @@ default.
   with the named user's role and visibility. Give the sidecar such a key
   instead of `[server].api_key`.
 
+  When the sidecar verified the person itself — an identity-provider access
+  token — it also sends `X-Msgvault-On-Behalf-Of-Identity`: the provider
+  account (issuer and subject), the display name, and the role it derived
+  from the provider's groups. The daemon records that as a sign-in, exactly
+  like a browser login: a person it has never seen becomes a user on their
+  first MCP call, bound to the provider account a later web sign-in matches,
+  and a role the provider changed since is refreshed. A key bound to a `user`
+  asserts no identity, because it verified nobody.
+
+  This is a trust boundary. Only a key marked `on_behalf_of` can make the
+  daemon create or update a user, and such a key is already an
+  administrator, so the assertion grants the sidecar nothing it could not do
+  on its own; keep that key out of every other process. The daemon refuses an
+  assertion it cannot parse, one without a provider account, or one with an
+  unknown role, and it never revives a disabled user. Without the assertion —
+  an older sidecar, or a key without `on_behalf_of` — the daemon still
+  refuses a person it does not know, and the MCP client shows an
+  `acting_user_refused` error asking them to sign in to the Web UI once; that
+  first sign-in creates the user.
+
 ## Binding sources to users
 
 Administrators bind sources from Settings → Users in the Web UI, from the

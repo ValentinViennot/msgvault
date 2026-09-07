@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 
 	"go.kenn.io/msgvault/internal/apiprotocol"
+	"go.kenn.io/msgvault/internal/authz"
 	"go.kenn.io/msgvault/internal/identityops"
 	"go.kenn.io/msgvault/internal/store"
 	"go.kenn.io/msgvault/internal/vector"
@@ -790,4 +791,46 @@ func TestRunCLICommandStopsRetryingWhenContextCancelled(t *testing.T) {
 	case <-time.After(time.Second):
 		require.FailNow("streaming busy retry did not return after context cancellation")
 	}
+}
+
+func TestGeneratedRequestForwardsTheActingUserAndIdentity(t *testing.T) {
+	require := require.New(t)
+	assert := assert.New(t)
+	type seenHeaders struct {
+		acting, identity string
+	}
+	var seen []seenHeaders
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, seenHeaders{
+			acting:   r.Header.Get(authz.ActingUserHeader),
+			identity: r.Header.Get(authz.ActingIdentityHeader),
+		})
+		w.Header().Set("Content-Type", "application/json")
+		assert.NoError(json.NewEncoder(w).Encode(generated.QueryResult{Columns: []string{"n"}, Rows: [][]any{{float64(1)}}}))
+	}))
+	t.Cleanup(srv.Close)
+
+	c, err := New(Config{URL: srv.URL, APIKey: "secret-key", AllowInsecure: true})
+	require.NoError(err)
+	apiClient, err := c.GeneratedClient()
+	require.NoError(err)
+	run := func(ctx context.Context) {
+		_, err := apiClient.RunQuery(ctx, &generated.RunQueryRequestOptions{Body: &generated.RunQueryBody{SQL: "SELECT 1"}})
+		require.NoError(err)
+	}
+	identity := authz.ActingIdentity{Issuer: "https://idp.example", Subject: "u-1", Name: "Alice Été", Role: authz.RoleMember}
+
+	run(t.Context())
+	run(authz.WithActingUser(t.Context(), "alice@example.com"))
+	run(authz.WithActingIdentity(authz.WithActingUser(t.Context(), "alice@example.com"), identity))
+	run(authz.WithActingIdentity(t.Context(), identity))
+
+	require.Len(seen, 4)
+	assert.Equal(seenHeaders{}, seen[0], "the daemon's own view sends neither header")
+	assert.Equal(seenHeaders{acting: "alice@example.com"}, seen[1], "an acting user alone is forwarded as before")
+	assert.Equal("alice@example.com", seen[2].acting)
+	parsed, err := authz.ParseActingIdentity(seen[2].identity)
+	require.NoError(err, "the identity header is the parseable wire form")
+	assert.Equal(identity, parsed)
+	assert.Equal(seenHeaders{}, seen[3], "an identity without an acting user is not forwarded")
 }

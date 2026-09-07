@@ -118,10 +118,16 @@ Desktop and mobile, and `https://claude.ai/oauth/claude-code-client-metadata`
 for Claude Code; list them exactly, because a provider's wildcard may not span
 path segments (Pocket ID's `https://claude.ai/*` matches neither).
 
-Sign in to the Web UI once before connecting an MCP client: the daemon creates
-your user at that first sign-in, and MCP calls act as that user. Until then
-every tool call fails with "acting user is not a known user", which MCP
-clients surface as an internal error.
+MCP calls act as the signed-in person at the daemon. The listener forwards
+the identity it verified — provider account, display name, and the role it
+derived from the groups — and the daemon records it as a sign-in, so a person
+can connect from Claude before ever opening the Web UI: their user exists
+from the first tool call (see
+[Users and Visible Sources](/docs/usage/users/)). If the daemon refuses them
+instead — an older daemon, a sidecar key without `on_behalf_of`, or a
+disabled user — tool calls fail with an `acting_user_refused` error that asks
+the person to sign in to the Web UI once; on a daemon that only records
+browser logins, that first sign-in creates the user.
 
 Without metadata documents, Claude Code connects with a client registered at
 the provider (a public client with PKCE and Claude Code's localhost callback):
@@ -137,10 +143,13 @@ the provider for clients that cannot run an OAuth flow. Serve the listener over
 HTTPS: the provider's tokens are bearer credentials.
 
 When the daemon serves several users, the listener forwards the signed-in
-person (or the user a named key is bound to) in `X-Msgvault-On-Behalf-Of`, so
-the tools see that person's [visible sources](/docs/usage/users/). For the
-daemon to honour it, the sidecar's `[remote].api_key` must be a daemon
-`[[auth.api_keys]]` entry with `role = "admin"` and `on_behalf_of = true`.
+person (or the user a named key is bound to) in `X-Msgvault-On-Behalf-Of`,
+and for a person it verified through the provider also
+`X-Msgvault-On-Behalf-Of-Identity`, so the tools see that person's
+[visible sources](/docs/usage/users/) and the daemon can create the user on
+first use. For the daemon to honour either header, the sidecar's
+`[remote].api_key` must be a daemon `[[auth.api_keys]]` entry with
+`role = "admin"` and `on_behalf_of = true`.
 
 ## Available Tools
 

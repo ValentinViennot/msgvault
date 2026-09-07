@@ -102,8 +102,28 @@ Explore `source` filters are intersected with it, message and conversation
 lookups outside it answer `404`, `/text/*` views need one visible source, and
 `POST /api/v1/query` stays administrator-only. `GET /api/v1/users`,
 `PUT /api/v1/users/{id}/sources`, and `PATCH /api/v1/users/{id}` manage the
-bindings. A request from an admin key configured with `on_behalf_of` may carry
-`X-Msgvault-On-Behalf-Of: <email>` to run as that user.
+bindings.
+
+A request from an admin key configured with `on_behalf_of` may carry
+`X-Msgvault-On-Behalf-Of: <email>` to run as that user. A service that
+verified the person itself (the MCP listener with an identity-provider token)
+adds `X-Msgvault-On-Behalf-Of-Identity`, a one-line JSON object in printable
+ASCII:
+
+```json
+{"issuer": "https://idp.example", "subject": "u-123", "name": "Alice Example", "role": "member"}
+```
+
+`issuer` and `subject` name the provider account, `name` is optional, and
+`role` is `viewer`, `member`, or `admin` as the service derived it from the
+provider's groups. The daemon records the pair of headers as a sign-in
+through the same path as the browser login: an unknown address becomes a user
+bound to that provider account, and a changed role or name is refreshed. The
+identity header is ignored without `X-Msgvault-On-Behalf-Of`; it is refused
+with `401` from a key not marked `on_behalf_of`, when it is malformed,
+oversized, without an account, or names an unknown role; and it never revives
+a disabled user. Without it, an acting user the daemon does not know is
+refused with `401`.
 
 ### Single sign-on and access tokens
 

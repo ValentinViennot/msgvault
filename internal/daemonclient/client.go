@@ -345,6 +345,9 @@ func requestEditor(apiKey string, mode RequestMode, localDaemonToken string) api
 		}
 		if acting := authz.ActingUser(ctx); acting != "" {
 			req.Header.Set(authz.ActingUserHeader, acting)
+			if identity, ok := authz.ActingIdentityFromContext(ctx); ok {
+				req.Header.Set(authz.ActingIdentityHeader, identity.HeaderValue())
+			}
 		}
 		if mode == RequestModeCLI {
 			req.Header.Set(apiprotocol.ClientClassHeader, apiprotocol.ClientClassCLI)

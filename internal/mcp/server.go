@@ -122,6 +122,12 @@ func officialToolHandler(
 	return func(ctx context.Context, _ *sdkmcp.CallToolRequest, arguments map[string]any) (*sdkmcp.CallToolResult, any, error) {
 		result, err := handler(ctx, toolRequest{arguments: arguments})
 		if err != nil {
+			if message, refused := actingUserRefused(ctx, err); refused {
+				return &sdkmcp.CallToolResult{
+					IsError: true,
+					Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: message}},
+				}, nil, nil
+			}
 			return nil, nil, mapInternalError(err)
 		}
 		if result == nil {
@@ -377,6 +383,9 @@ type grantContextKey struct{}
 type callerGrant struct {
 	principal  authz.Principal
 	writeScope bool
+	// identity is what the identity provider asserted about a token's user,
+	// forwarded to the daemon so it can record the sign-in; nil for keys.
+	identity *authz.ActingIdentity
 }
 
 // grantFromContext returns the caller established by bearerAuthHandler. A
@@ -502,7 +511,14 @@ func bearerAuthHandler(apiKey string, keys []NamedKey, provider *oidc.Provider, 
 							http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 							return
 						default:
-							grant = callerGrant{principal: principal, writeScope: identity.HasScope(oidc.ScopeWrite)}
+							grant = callerGrant{
+								principal:  principal,
+								writeScope: identity.HasScope(oidc.ScopeWrite),
+								identity: &authz.ActingIdentity{
+									Issuer: identity.Issuer, Subject: identity.Subject,
+									Name: identity.Name, Role: principal.Role,
+								},
+							}
 							authorized = true
 						}
 					} else {
@@ -522,6 +538,9 @@ func bearerAuthHandler(apiKey string, keys []NamedKey, provider *oidc.Provider, 
 		// the local operator and unbound keys keep the daemon's own view.
 		if grant.principal.Kind == authz.PrincipalUser || grant.principal.Email != "" {
 			ctx = authz.WithActingUser(ctx, grant.principal.Email)
+			if grant.identity != nil {
+				ctx = authz.WithActingIdentity(ctx, *grant.identity)
+			}
 		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

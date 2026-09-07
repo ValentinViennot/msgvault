@@ -1,5 +1,5 @@
 ---
-last_edited: 2026-09-04
+last_edited: 2026-09-07
 title: Changelog
 description: Release history for msgvault
 ---
@@ -68,6 +68,17 @@ All notable changes to msgvault, grouped by release.
   shared by design; `POST /api/v1/query` stays administrator-only. The MCP
   listener forwards the caller in `X-Msgvault-On-Behalf-Of`, which the daemon
   honours from admin keys marked `on_behalf_of`. New `user_sources` table.
+
+- MCP users are created on first use. `msgvault mcp --http` forwards the
+  identity it verified through the provider (`X-Msgvault-On-Behalf-Of-Identity`:
+  provider account, display name, and the role derived from the groups) beside
+  `X-Msgvault-On-Behalf-Of`, and the daemon records it as a sign-in from admin
+  keys marked `on_behalf_of`, so a person connecting from Claude no longer has
+  to open the Web UI first. When the daemon still refuses the person — an
+  older daemon, a key without `on_behalf_of`, or a disabled user — tool calls
+  answer an `acting_user_refused` error that asks for one web sign-in instead
+  of a generic internal error. A disabled user acting through the sidecar is
+  now refused whatever their role.
 
 - Web Directory workspace: browse and search promoted durable people, filter
   by contact state, category, organization, and last contact, and maintain a

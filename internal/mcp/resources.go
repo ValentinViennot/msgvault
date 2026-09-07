@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.kenn.io/msgvault/internal/export"
 	"go.kenn.io/msgvault/internal/query"
@@ -168,6 +169,9 @@ func registerAttachmentResources(server *sdkmcp.Server, h *handlers) {
 		if err != nil {
 			if _, ok := errors.AsType[*attachmentUnavailableError](err); ok {
 				return nil, sdkmcp.ResourceNotFoundError(rawURI)
+			}
+			if message, refused := actingUserRefused(ctx, err); refused {
+				return nil, &jsonrpc.Error{Code: actingUserRefusedErrorCode, Message: message}
 			}
 			return nil, mapInternalError(err)
 		}

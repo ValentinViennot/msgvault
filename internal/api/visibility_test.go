@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strconv"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -141,3 +142,131 @@ func TestUserAdministrationChangesVisibility(t *testing.T) {
 }
 
 func itoa(v int64) string { return strconv.FormatInt(v, 10) }
+
+func identityHeader(subject, name string, role authz.Role) string {
+	return authz.ActingIdentity{Issuer: "https://idp.example", Subject: subject, Name: name, Role: role}.HeaderValue()
+}
+
+func TestOnBehalfOfIdentityCreatesAndRefreshesTheUser(t *testing.T) {
+	assert := assert.New(t)
+	require := require.New(t)
+	f := newVisibilityFixture(t)
+	me := func(headers http.Header) (int, PrincipalInfo) {
+		resp := performSessionRequest(t, f.srv, http.MethodGet, "/api/v1/me", nil, headers, false)
+		var principal PrincipalInfo
+		if resp.Code == http.StatusOK {
+			require.NoError(decodeJSONBody(resp, &principal))
+		}
+		return resp.Code, principal
+	}
+	asCarol := func(extra ...string) http.Header {
+		return withKey("sidecar-secret-value", append([]string{authz.ActingUserHeader, "carol@example.com"}, extra...)...)
+	}
+
+	_, err := f.st.GetUserByEmail(t.Context(), "carol@example.com")
+	require.ErrorIs(err, store.ErrUserNotFound)
+
+	code, principal := me(asCarol(authz.ActingIdentityHeader, identityHeader("carol", "Carol Example", authz.RoleViewer)))
+	require.Equal(http.StatusOK, code, "a trusted sidecar's assertion creates the user on first use")
+	assert.Equal(PrincipalInfo{Kind: authz.PrincipalUser, Name: "Carol Example", Email: "carol@example.com", Role: authz.RoleViewer}, principal)
+	carol, err := f.st.GetUserByEmail(t.Context(), "carol@example.com")
+	require.NoError(err)
+	assert.Equal("viewer", carol.Role)
+	assert.Equal("Carol Example", carol.DisplayName)
+	bound, err := f.st.GetUserByIdentity(t.Context(), "https://idp.example", "carol")
+	require.NoError(err, "the provider account is bound like a browser sign-in")
+	assert.Equal(carol.ID, bound.ID)
+	assert.Equal(http.StatusNotFound, performSessionRequest(t, f.srv, http.MethodGet, "/api/v1/messages/11", nil,
+		asCarol(authz.ActingIdentityHeader, identityHeader("carol", "Carol Example", authz.RoleViewer)), false).Code,
+		"a new user sees no source until an administrator binds one")
+
+	code, principal = me(asCarol(authz.ActingIdentityHeader, identityHeader("carol", "", authz.RoleMember)))
+	require.Equal(http.StatusOK, code)
+	assert.Equal(authz.RoleMember, principal.Role, "a role the provider changed is refreshed, as at a web sign-in")
+	assert.Equal("Carol Example", principal.Name, "a provider that sends no name keeps the stored one")
+	carol, err = f.st.GetUserByEmail(t.Context(), "carol@example.com")
+	require.NoError(err)
+	assert.Equal("member", carol.Role)
+	assert.Equal("Carol Example", carol.DisplayName)
+
+	code, principal = me(asCarol())
+	require.Equal(http.StatusOK, code, "an older sidecar without the assertion still acts as an existing user")
+	assert.Equal(authz.RoleMember, principal.Role)
+}
+
+func TestOnBehalfOfIdentityIsHonouredOnlyFromTrustedKeys(t *testing.T) {
+	assert := assert.New(t)
+	require := require.New(t)
+	f := newVisibilityFixture(t)
+	get := func(headers http.Header) int {
+		return performSessionRequest(t, f.srv, http.MethodGet, "/api/v1/me", nil, headers, false).Code
+	}
+	noUser := func(email string) {
+		t.Helper()
+		_, err := f.st.GetUserByEmail(t.Context(), email)
+		assert.ErrorIs(err, store.ErrUserNotFound, "%s must not have been created", email)
+	}
+
+	assert.Equal(http.StatusUnauthorized, get(withKey("admin-secret-value",
+		authz.ActingUserHeader, "dave@example.com", authz.ActingIdentityHeader, identityHeader("dave", "Dave", authz.RoleAdmin))),
+		"the administrator key is not marked on_behalf_of, so its assertion is worthless")
+	noUser("dave@example.com")
+
+	assert.Equal(http.StatusUnauthorized, get(withKey("alice-secret-value",
+		authz.ActingUserHeader, "dave@example.com", authz.ActingIdentityHeader, identityHeader("dave", "Dave", authz.RoleAdmin))),
+		"a user-bound key cannot mint users either")
+	noUser("dave@example.com")
+
+	for name, value := range map[string]string{
+		"malformed":   "not json",
+		"no account":  `{"role":"viewer"}`,
+		"bad role":    `{"issuer":"https://idp.example","subject":"erin","role":"owner"}`,
+		"escalation?": `{"issuer":"https://idp.example","subject":"erin","role":"superuser"}`,
+	} {
+		assert.Equal(http.StatusUnauthorized, get(withKey("sidecar-secret-value",
+			authz.ActingUserHeader, "erin@example.com", authz.ActingIdentityHeader, value)),
+			"%s: an assertion the daemon cannot trust fails closed", name)
+	}
+	noUser("erin@example.com")
+
+	assert.Equal(http.StatusUnauthorized, get(withKey("sidecar-secret-value", authz.ActingUserHeader, "erin@example.com")),
+		"without an assertion an unknown user is still refused")
+	noUser("erin@example.com")
+
+	// A disabled user stays out, whatever role the sidecar asserts.
+	require.NoError(f.st.SetUserDisabled(t.Context(), f.alice.ID, true))
+	assert.Equal(http.StatusUnauthorized, get(withKey("sidecar-secret-value",
+		authz.ActingUserHeader, "alice@example.com", authz.ActingIdentityHeader, identityHeader("alice", "Alice", authz.RoleAdmin))))
+	assert.Equal(http.StatusUnauthorized, get(withKey("sidecar-secret-value", authz.ActingUserHeader, "alice@example.com")))
+	alice, err := f.st.GetUserByEmail(t.Context(), "alice@example.com")
+	require.NoError(err)
+	assert.Equal("member", alice.Role, "a refused assertion changes nothing")
+}
+
+func TestOnBehalfOfIdentityConcurrentFirstUse(t *testing.T) {
+	assert := assert.New(t)
+	require := require.New(t)
+	f := newVisibilityFixture(t)
+	const callers = 6
+	codes := make([]int, callers)
+	var wg sync.WaitGroup
+	for i := range callers {
+		wg.Go(func() {
+			codes[i] = performSessionRequest(t, f.srv, http.MethodGet, "/api/v1/me", nil, withKey("sidecar-secret-value",
+				authz.ActingUserHeader, "frank@example.com", authz.ActingIdentityHeader, identityHeader("frank", "Frank", authz.RoleViewer)), false).Code
+		})
+	}
+	wg.Wait()
+	for i, code := range codes {
+		assert.Equal(http.StatusOK, code, "caller %d", i)
+	}
+	users, err := f.st.ListUsers(t.Context())
+	require.NoError(err)
+	created := 0
+	for _, user := range users {
+		if user.Email == "frank@example.com" {
+			created++
+		}
+	}
+	assert.Equal(1, created, "parallel first requests create one user")
+}

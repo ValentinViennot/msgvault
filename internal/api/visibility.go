@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -31,10 +32,35 @@ type UserStore interface {
 const visibilityTTL = 30 * time.Second
 
 var (
-	errActingUserNotAllowed = errors.New("this credential may not act on behalf of a user")
-	errActingUserUnknown    = errors.New("acting user is not a known user")
-	errUserDisabled         = errors.New("user is disabled")
+	errActingUserNotAllowed  = errors.New("this credential may not act on behalf of a user")
+	errActingUserUnknown     = errors.New("acting user is not a known user")
+	errActingIdentityInvalid = errors.New("acting identity assertion is invalid")
+	errUserDisabled          = errors.New("user is disabled")
 )
+
+// actingUser is what a request asserts about the person it is made for: the
+// address in authz.ActingUserHeader and, from a service that verified the
+// person itself, the identity behind it.
+type actingUser struct {
+	email    string
+	identity *authz.ActingIdentity
+	// identityErr records an identity header the daemon cannot trust. The
+	// request is refused rather than served with the caller's own view.
+	identityErr error
+}
+
+func actingUserFromRequest(r *http.Request) actingUser {
+	acting := actingUser{email: strings.TrimSpace(r.Header.Get(authz.ActingUserHeader))}
+	if raw := r.Header.Get(authz.ActingIdentityHeader); raw != "" {
+		identity, err := authz.ParseActingIdentity(raw)
+		if err != nil {
+			acting.identityErr = err
+		} else {
+			acting.identity = &identity
+		}
+	}
+	return acting
+}
 
 type visibilityEntry struct {
 	principal authz.Principal
@@ -89,36 +115,39 @@ func (s *Server) finishAuthentication(r *http.Request, auth requestAuthenticatio
 	if auth.Mode == AuthModeRequired || auth.Mode == AuthModeLoopback {
 		return auth
 	}
-	acting := strings.TrimSpace(r.Header.Get(authz.ActingUserHeader))
+	acting := actingUserFromRequest(r)
 	principal, err := s.resolvePrincipal(r.Context(), auth.Principal, acting, allowActing)
 	if err != nil {
 		s.logger.Warn("principal resolution refused",
 			"principal", string(auth.Principal.Kind)+":"+auth.Principal.Name,
-			"acting_user", acting, "error", err)
+			"acting_user", acting.email, "error", err)
 		return requestAuthentication{Mode: AuthModeRequired}
 	}
 	auth.Principal = principal
-	if auth.Mode == AuthModeAPIKey && acting != "" {
+	if auth.Mode == AuthModeAPIKey && acting.email != "" {
 		// The credential is a service key; the request is the user's.
 		auth.trustedForCLIDuration = principal.Role == authz.RoleAdmin
 	}
 	return auth
 }
 
-func (s *Server) resolvePrincipal(ctx context.Context, principal authz.Principal, acting string, allowActing bool) (authz.Principal, error) {
-	if acting != "" {
+func (s *Server) resolvePrincipal(ctx context.Context, principal authz.Principal, acting actingUser, allowActing bool) (authz.Principal, error) {
+	if acting.email != "" {
 		if !allowActing {
 			return authz.Principal{}, errActingUserNotAllowed
+		}
+		if acting.identityErr != nil {
+			return authz.Principal{}, fmt.Errorf("%w: %w", errActingIdentityInvalid, acting.identityErr)
 		}
 		if s.userStore == nil {
 			return authz.Principal{}, errActingUserUnknown
 		}
-		user, err := s.userStore.GetUserByEmail(ctx, acting)
-		if errors.Is(err, store.ErrUserNotFound) {
-			return authz.Principal{}, errActingUserUnknown
-		}
+		user, err := s.lookupActingUser(ctx, acting)
 		if err != nil {
 			return authz.Principal{}, err
+		}
+		if user.Disabled {
+			return authz.Principal{}, errUserDisabled
 		}
 		role, err := authz.ParseRole(user.Role)
 		if err != nil {
@@ -149,6 +178,63 @@ func (s *Server) resolvePrincipal(ctx context.Context, principal authz.Principal
 		return authz.Principal{}, err
 	}
 	return resolved, nil
+}
+
+// lookupActingUser finds the user a trusted service acts for. When the
+// service asserts the identity it verified, the daemon records it as a
+// sign-in, as the browser login does: an unknown address becomes a user with
+// the asserted role, and a role or display name the identity provider changed
+// since is refreshed. Without the assertion only an existing user is accepted.
+func (s *Server) lookupActingUser(ctx context.Context, acting actingUser) (*store.User, error) {
+	user, err := s.userStore.GetUserByEmail(ctx, acting.email)
+	switch {
+	case errors.Is(err, store.ErrUserNotFound):
+		if acting.identity == nil {
+			return nil, errActingUserUnknown
+		}
+		user, err = s.recordActingLogin(ctx, acting, "")
+		if err != nil {
+			return nil, err
+		}
+		s.logger.Info("user created from a trusted service's identity assertion",
+			"email", user.Email, "role", user.Role, "issuer", acting.identity.Issuer)
+		return user, nil
+	case err != nil:
+		return nil, err
+	case user.Disabled:
+		// Refused by the caller; a disabled user's record is left as it is.
+		return user, nil
+	}
+	if acting.identity != nil && actingIdentityChanged(user, *acting.identity) {
+		return s.recordActingLogin(ctx, acting, user.DisplayName)
+	}
+	return user, nil
+}
+
+// actingIdentityChanged reports whether the asserted role or display name
+// differs from the stored one; a provider that supplied no name keeps the
+// stored name.
+func actingIdentityChanged(user *store.User, identity authz.ActingIdentity) bool {
+	return user.Role != string(identity.Role) || (identity.Name != "" && user.DisplayName != identity.Name)
+}
+
+func (s *Server) recordActingLogin(ctx context.Context, acting actingUser, currentName string) (*store.User, error) {
+	name := acting.identity.Name
+	if name == "" {
+		name = currentName
+	}
+	user, err := s.userStore.RecordUserLogin(ctx, store.UserLogin{
+		Issuer: acting.identity.Issuer, Subject: acting.identity.Subject, Email: acting.email,
+		DisplayName: name, Role: string(acting.identity.Role),
+	})
+	if err != nil {
+		// A concurrent first request may have created the user meanwhile.
+		if existing, lookupErr := s.userStore.GetUserByEmail(ctx, acting.email); lookupErr == nil {
+			return existing, nil
+		}
+		return nil, fmt.Errorf("record acting user login: %w", err)
+	}
+	return user, nil
 }
 
 func cacheKey(principal authz.Principal) string {
