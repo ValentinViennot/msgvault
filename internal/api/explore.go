@@ -175,6 +175,7 @@ type ExploreActionTarget struct {
 }
 
 type ExplorePreflightResponse struct {
+	DeletableCount      int64                      `json:"deletable_count"`
 	Count               int64                      `json:"count"`
 	EstimatedBytes      int64                      `json:"estimated_bytes"`
 	CacheRevision       string                     `json:"cache_revision"`
@@ -592,7 +593,9 @@ func (s *Server) handleExplorePreflight(w http.ResponseWriter, r *http.Request) 
 	token := state.issueOperation(selectionHash, stats.Count, stats.CacheRevision)
 	unavailableActions := make([]ExploreUnavailableAction, 0, 4)
 	actionTargets := make([]ExploreActionTarget, 0, 1)
-	if stats.DeletableCount != stats.Count {
+	// Staging takes the deletable subset of a mixed selection, so only a
+	// selection with nothing deletable makes the action unavailable.
+	if stats.DeletableCount == 0 {
 		unavailableActions = append(unavailableActions, ExploreUnavailableAction{
 			Action: "stage_deletion", Reason: "selection_contains_items_that_cannot_be_deleted_from_source",
 		})
@@ -632,7 +635,8 @@ func (s *Server) handleExplorePreflight(w http.ResponseWriter, r *http.Request) 
 		Action: "open_in_source", Reason: "trusted_source_link_unavailable",
 	})
 	writeJSON(w, http.StatusOK, ExplorePreflightResponse{
-		Count: stats.Count, EstimatedBytes: stats.EstimatedBytes, CacheRevision: stats.CacheRevision,
+		DeletableCount: stats.DeletableCount,
+		Count:          stats.Count, EstimatedBytes: stats.EstimatedBytes, CacheRevision: stats.CacheRevision,
 		SearchProvenance: stats.SearchProvenance, UnavailableActions: unavailableActions,
 		ActionTargets:  actionTargets,
 		OperationToken: token, ExpiresAt: state.now().Add(exploreOperationTokenTTL),

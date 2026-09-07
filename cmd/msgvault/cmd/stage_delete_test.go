@@ -89,7 +89,7 @@ func TestStageDeleteCommand(t *testing.T) {
 			dryRun:     true,
 			status:     http.StatusOK,
 			wantQuery:  "subject:receipt",
-			wantOutput: "Dry run: 3 message(s) match the search; no deletion batch was created.\n",
+			wantOutput: "Dry run: 3 message(s) would be staged; no deletion batch was created.\n",
 		},
 		{
 			name:       "source_id",
@@ -165,10 +165,10 @@ func TestStageDeleteCommand(t *testing.T) {
 		}{
 			{name: "invalid", args: []string{"before:not-a-date"}, want: "invalid value"},
 			{name: "empty", args: []string{"   "}, want: "empty search query"},
-			{name: "empty_from", args: []string{"from:"}, want: "empty address filter"},
-			{name: "empty_to", args: []string{"to:"}, want: "empty address filter"},
-			{name: "empty_cc", args: []string{"cc:"}, want: "empty address filter"},
-			{name: "empty_bcc", args: []string{"bcc:"}, want: "empty address filter"},
+			{name: "empty_from", args: []string{"from:"}, want: "non-empty address filter"},
+			{name: "empty_to", args: []string{"to:"}, want: "non-empty address filter"},
+			{name: "empty_cc", args: []string{"cc:"}, want: "non-empty address filter"},
+			{name: "empty_bcc", args: []string{"bcc:"}, want: "non-empty address filter"},
 			{name: "zero_source_id", args: []string{"subject:test", "--source-id", "0"}, want: "source ID must be positive"},
 			{name: "negative_source_id", args: []string{"subject:test", "--source-id", "-1"}, want: "source ID must be positive"},
 		} {
@@ -195,6 +195,8 @@ func TestStageDeleteCommand(t *testing.T) {
 	t.Run("cache_unavailable_reports_recovery", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
+			case "/api/v1/health":
+				writeStageDeleteJSON(t, w, http.StatusOK, map[string]any{"status": "ok", "api_schema_version": "2.18.0"})
 			case "/api/v1/cli/search":
 				writeStageDeleteJSON(t, w, http.StatusOK, map[string]any{"results": []any{}})
 			case "/api/v1/explore":
@@ -220,18 +222,34 @@ func TestStageDeleteCommand(t *testing.T) {
 		require.ErrorContains(t, err, "msgvault build-cache")
 	})
 
-	t.Run("staging_rejections_guide_narrowing", func(t *testing.T) {
+	// Issue #768: a mixed search stages its deletable subset, and the command
+	// names what it left out instead of reporting a quietly smaller number.
+	t.Run("reports_skipped_non_deletable_matches", func(t *testing.T) {
 		for _, tt := range []struct {
-			name string
-			code string
-			want string
+			name       string
+			dryRun     bool
+			status     int
+			wantOutput string
 		}{
-			{name: "non_deletable", code: "selection_not_deletable", want: "message_type:email"},
-			{name: "multi_source", code: "multi_account_selection", want: "once per source with --source-id"},
+			{
+				name: "staged", status: http.StatusCreated,
+				wantOutput: "Preflight: 3 matching item(s); 2 message(s) can be staged; 1 item(s) will be skipped.\n" +
+					"Staged 2 message(s) for deletion in batch batch-191.\n" +
+					"1 of 3 matching item(s) cannot be deleted from their source (chats, meetings, or non-Gmail mail) and were skipped.\n" +
+					"Review with 'msgvault show-deletion batch-191', then execute with 'msgvault delete-staged batch-191'.\n",
+			},
+			{
+				name: "dry_run", dryRun: true, status: http.StatusOK,
+				wantOutput: "Preflight: 3 matching item(s); 2 message(s) can be staged; 1 item(s) will be skipped.\n" +
+					"Dry run: 2 message(s) would be staged; no deletion batch was created.\n" +
+					"1 of 3 matching item(s) cannot be deleted from their source (chats, meetings, or non-Gmail mail) and were skipped.\n",
+			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					switch r.URL.Path {
+					case "/api/v1/health":
+						writeStageDeleteJSON(t, w, http.StatusOK, map[string]any{"status": "ok", "api_schema_version": "2.18.0"})
 					case "/api/v1/cli/search":
 						writeStageDeleteJSON(t, w, http.StatusOK, map[string]any{"results": []any{}})
 					case "/api/v1/explore":
@@ -245,6 +263,74 @@ func TestStageDeleteCommand(t *testing.T) {
 						writeStageDeleteJSON(t, w, http.StatusOK, map[string]any{
 							"cache_revision":      "cache-191",
 							"count":               3,
+							"deletable_count":     2,
+							"operation_token":     "operation-191",
+							"expires_at":          "2099-01-01T00:00:00Z",
+							"search_provenance":   map[string]any{"lexical_index_revision": "lex-191"},
+							"action_targets":      []any{},
+							"unavailable_actions": []any{},
+						})
+					case "/api/v1/deletions":
+						response := map[string]any{
+							"dry_run":       tt.dryRun,
+							"message_count": 2,
+							"matched_count": 3,
+							"skipped_count": 1,
+							"account":       "alice@example.com",
+						}
+						if !tt.dryRun {
+							response["id"] = "batch-191"
+							response["status"] = "pending"
+						}
+						writeStageDeleteJSON(t, w, tt.status, response)
+					default:
+						http.NotFound(w, r)
+					}
+				}))
+				defer server.Close()
+				withStoreResolverConfig(t, &config.Config{
+					Remote: config.RemoteConfig{URL: server.URL, AllowInsecure: true},
+				})
+
+				var stdout bytes.Buffer
+				root := newRegisteredStageDeleteTestRoot(t)
+				root.SetOut(&stdout)
+				root.SetArgs(append([]string{"stage-delete", "subject:receipt"}, boolFlag(tt.dryRun, "--dry-run")...))
+
+				require.NoError(t, root.Execute())
+				assert.Equal(t, tt.wantOutput, stdout.String())
+			})
+		}
+	})
+
+	t.Run("staging_rejections_guide_narrowing", func(t *testing.T) {
+		for _, tt := range []struct {
+			name string
+			code string
+			want string
+		}{
+			{name: "non_deletable", code: "selection_not_deletable", want: "nothing the search matched can be deleted"},
+			{name: "multi_source", code: "multi_account_selection", want: "once per source with --source-id"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					switch r.URL.Path {
+					case "/api/v1/health":
+						writeStageDeleteJSON(t, w, http.StatusOK, map[string]any{"status": "ok", "api_schema_version": "2.18.0"})
+					case "/api/v1/cli/search":
+						writeStageDeleteJSON(t, w, http.StatusOK, map[string]any{"results": []any{}})
+					case "/api/v1/explore":
+						writeStageDeleteJSON(t, w, http.StatusOK, map[string]any{
+							"cache_revision":        "cache-191",
+							"rows":                  []any{},
+							"search_provenance":     map[string]any{"lexical_index_revision": "lex-191"},
+							"candidate_snapshot_id": "snapshot-191",
+						})
+					case "/api/v1/explore/preflight":
+						writeStageDeleteJSON(t, w, http.StatusOK, map[string]any{
+							"cache_revision":      "cache-191",
+							"count":               3,
+							"deletable_count":     3,
 							"operation_token":     "operation-191",
 							"expires_at":          "2099-01-01T00:00:00Z",
 							"search_provenance":   map[string]any{"lexical_index_revision": "lex-191"},
@@ -279,6 +365,8 @@ func TestStageDeleteCommand(t *testing.T) {
 		exploreRequests := 0
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
+			case "/api/v1/health":
+				writeStageDeleteJSON(t, w, http.StatusOK, map[string]any{"status": "ok", "api_schema_version": "2.18.0"})
 			case "/api/v1/cli/search":
 				writeStageDeleteJSON(t, w, http.StatusOK, map[string]any{
 					"results":     []any{},
@@ -304,11 +392,12 @@ func TestStageDeleteCommand(t *testing.T) {
 		assert.Zero(t, exploreRequests, "an incomplete search index must block staging before Explore")
 	})
 
-	t.Run("list_id_rejects_old_daemon_before_explore", func(t *testing.T) {
+	t.Run("query_staging_rejects_old_daemon_before_explore", func(t *testing.T) {
 		for _, tt := range []struct {
 			name  string
 			query string
 		}{
+			{name: "ordinary", query: "subject:receipt"},
 			{name: "list", query: "list:announce.example.org"},
 			{name: "list_id", query: "list-id:announce.example.org"},
 		} {
@@ -319,7 +408,7 @@ func TestStageDeleteCommand(t *testing.T) {
 					case "/api/v1/health":
 						writeStageDeleteJSON(t, w, http.StatusOK, map[string]any{
 							"status":             "ok",
-							"api_schema_version": "2.13.0",
+							"api_schema_version": "2.17.0",
 						})
 					case "/api/v1/explore":
 						exploreRequests++
@@ -337,13 +426,13 @@ func TestStageDeleteCommand(t *testing.T) {
 				root.SetArgs([]string{"stage-delete", tt.query})
 				err := root.Execute()
 
-				require.ErrorContains(t, err, "List-ID filter requires daemon API schema 2.14.0 or newer")
-				assert.Zero(t, exploreRequests, "an older daemon must reject List-ID queries before Explore")
+				require.ErrorContains(t, err, "query staging requires daemon API schema 2.18.0 or newer")
+				assert.Zero(t, exploreRequests, "an older daemon must reject query staging before Explore")
 			})
 		}
 	})
 
-	t.Run("list_id_capability_probe_failures_before_explore", func(t *testing.T) {
+	t.Run("query_staging_capability_probe_failures_before_explore", func(t *testing.T) {
 		for _, tt := range []struct {
 			name          string
 			status        int
@@ -388,7 +477,7 @@ func TestStageDeleteCommand(t *testing.T) {
 				root.SetArgs([]string{"stage-delete", "list:announce.example.org"})
 				err := root.Execute()
 
-				require.ErrorContains(t, err, "check daemon List-ID filter capability")
+				require.ErrorContains(t, err, "check daemon query staging capability")
 				assert.Equal(t, tt.wantHealthReq, healthRequests)
 				assert.Zero(t, exploreRequests, "a failed capability probe must happen before Explore")
 			})
@@ -397,7 +486,7 @@ func TestStageDeleteCommand(t *testing.T) {
 
 	t.Run("newer_daemon_and_ordinary_query", func(t *testing.T) {
 		t.Run("newer_daemon", func(t *testing.T) {
-			server, routes, healthRequests := newStageDeleteTestServerWithSchema(t, "list:announce.example.org", false, http.StatusCreated, "2.15.0")
+			server, routes, healthRequests := newStageDeleteTestServerWithSchema(t, "list:announce.example.org", false, http.StatusCreated, "2.18.0")
 			withStoreResolverConfig(t, &config.Config{
 				Remote: config.RemoteConfig{URL: server.URL, AllowInsecure: true},
 			})
@@ -410,8 +499,8 @@ func TestStageDeleteCommand(t *testing.T) {
 				"the stage-delete gate and the search-index probe each verify List-ID capability")
 		})
 
-		t.Run("ordinary_query_skips_probe", func(t *testing.T) {
-			server, routes, healthRequests := newStageDeleteTestServerWithSchema(t, "subject:test", false, http.StatusCreated, "2.15.0")
+		t.Run("ordinary_query_checks_contract", func(t *testing.T) {
+			server, routes, healthRequests := newStageDeleteTestServerWithSchema(t, "subject:test", false, http.StatusCreated, "2.18.0")
 			withStoreResolverConfig(t, &config.Config{
 				Remote: config.RemoteConfig{URL: server.URL, AllowInsecure: true},
 			})
@@ -420,7 +509,7 @@ func TestStageDeleteCommand(t *testing.T) {
 			root.SetArgs([]string{"stage-delete", "subject:test"})
 			require.NoError(t, root.Execute())
 			assert.Equal(t, []string{"/api/v1/cli/search", "/api/v1/explore", "/api/v1/explore/preflight", "/api/v1/deletions"}, *routes)
-			assert.Zero(t, *healthRequests)
+			assert.Equal(t, 1, *healthRequests)
 		})
 	})
 }
@@ -434,7 +523,7 @@ func boolFlag(enabled bool, flag string) []string {
 
 func newStageDeleteTestServer(t *testing.T, wantQuery string, dryRun bool, stageStatus int, wantSourceID ...int64) (*httptest.Server, *[]string) {
 	t.Helper()
-	server, routes, _ := newStageDeleteTestServerWithSchema(t, wantQuery, dryRun, stageStatus, "2.14.0", wantSourceID...)
+	server, routes, _ := newStageDeleteTestServerWithSchema(t, wantQuery, dryRun, stageStatus, "2.18.0", wantSourceID...)
 	return server, routes
 }
 
@@ -507,6 +596,7 @@ func newStageDeleteTestServerWithSchema(t *testing.T, wantQuery string, dryRun b
 		writeStageDeleteJSON(t, w, http.StatusOK, map[string]any{
 			"cache_revision":      "cache-191",
 			"count":               3,
+			"deletable_count":     3,
 			"operation_token":     "operation-191",
 			"expires_at":          "2099-01-01T00:00:00Z",
 			"search_provenance":   map[string]any{"lexical_index_revision": "lex-191"},
@@ -663,7 +753,7 @@ func TestStageDeleteCommandByIDs(t *testing.T) {
 		assert.Nil(request.OperationToken)
 		assert.Nil(request.Selection)
 		assert.Equal([]string{"/api/v1/deletions"}, routes)
-		assert.Equal("Dry run: 3 message(s) match the requested IDs; no deletion batch was created.\n", stdout.String())
+		assert.Equal("Dry run: 3 message(s) would be staged; no deletion batch was created.\n", stdout.String())
 	})
 
 	t.Run("multi_source", func(t *testing.T) {

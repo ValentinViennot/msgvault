@@ -3645,6 +3645,7 @@ type ExplorePreflightResponse struct {
 	ActionTargets       []ExploreActionTarget      `json:"action_targets" validate:"required"`
 	CacheRevision       string                     `json:"cache_revision" validate:"required"`
 	Count               int64                      `json:"count"`
+	DeletableCount      int64                      `json:"deletable_count"`
 	EstimatedBytes      int64                      `json:"estimated_bytes"`
 	ExpiresAt           time.Time                  `json:"expires_at" validate:"required"`
 	OperationToken      string                     `json:"operation_token" validate:"required"`
@@ -10174,8 +10175,10 @@ type StageDeletionResponse struct {
 	Account        *string          `json:"account,omitempty"`
 	DryRun         bool             `json:"dry_run"`
 	ID             *string          `json:"id,omitempty"`
+	MatchedCount   *int64           `json:"matched_count,omitempty"`
 	MessageCount   int64            `json:"message_count"`
 	SampleGmailIds []string         `json:"sample_gmail_ids,omitempty"`
+	SkippedCount   *int64           `json:"skipped_count,omitempty"`
 	Source         *SourceReference `json:"source,omitempty"`
 	Status         *string          `json:"status,omitempty"`
 }

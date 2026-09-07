@@ -1397,6 +1397,7 @@ explore contract is in the generated OpenAPI document (`/openapi.json`).
 ```json
 {
   "count": 1234,
+  "deletable_count": 1200,
   "estimated_bytes": 52428800,
   "cache_revision": "<current cache revision>",
   "search_provenance": {},
@@ -1410,10 +1411,15 @@ explore contract is in the generated OpenAPI document (`/openapi.json`).
 }
 ```
 
+`count` includes all selected items after exclusions. `deletable_count` is the
+Gmail subset that can be staged; the difference is the number of items staging
+will skip. A chat conversation counts as one item.
+
 `unavailable_actions` lists actions this selection does not support. A
-`stage_deletion` entry means the selection includes items that cannot be
-deleted from their source; staging it would fail with
-`409 selection_not_deletable`.
+`stage_deletion` entry means nothing in the selection can be deleted from its
+source; staging it would fail with `409 selection_not_deletable`. A selection
+that mixes deletable and non-deletable items carries no entry: staging takes
+the deletable subset and reports the rest as skipped.
 
 The `operation_token` is bound to this exact selection, its match count, and
 the current cache revision. It expires at `expires_at` (five minutes after
@@ -1423,7 +1429,8 @@ reused or expired token is rejected with `409 operation_token_invalid`.
 
 Malformed selections return `400` with `invalid_selection` (bad `mode`,
 missing `cache_revision`, or `mode: "explicit"` without `row_keys`) or
-`invalid_selection_predicate`. If the analytical cache or search index changes
+`invalid_selection_predicate`. Malformed search operators return `400 invalid_query`.
+If the analytical cache or search index changes
 after the explore response was produced, preflight fails with
 `409 archive_revision_changed` or `409 search_revision_changed` — re-run
 explore and preflight against the new revision. Staging repeats all of these
@@ -1528,7 +1535,7 @@ re-evaluated filter — is what gets staged:
 1. `POST /api/v1/explore` with the predicate; review the rows and note
    `cache_revision` (plus `search_provenance` and `candidate_snapshot_id` for
    search-backed predicates).
-2. `POST /api/v1/explore/preflight` with the `selection`; review `count` and
+2. `POST /api/v1/explore/preflight` with the `selection`; review `count`, `deletable_count`, and
    `estimated_bytes`, and keep the `operation_token`.
 3. `POST /api/v1/deletions` with the same `selection` and the token:
 
@@ -1550,13 +1557,35 @@ re-evaluated filter — is what gets staged:
 }
 ```
 
-The response is the same `201` manifest shape as above. `selection` cannot be
-combined with `filter` or `message_ids` (`400 invalid_request`). The server
-re-validates the selection against the preflight grant before staging: the
-selection, its match count, and the cache/search revisions must be unchanged,
-and every selected item must be deletable. `"dry_run": true` may be combined
-with a selection to preview the resolved count and sample; the token is
-validated but not consumed.
+The response is the same `201` manifest shape as above, plus `matched_count`
+and `skipped_count`:
+
+```json
+{
+  "dry_run": false,
+  "message_count": 2,
+  "matched_count": 3,
+  "skipped_count": 1,
+  "account": "you@gmail.com",
+  "source": {"id": 1, "type": "gmail", "identifier": "you@gmail.com"},
+  "id": "20260706-153000-old-example-com-mail-a1b2",
+  "status": "pending"
+}
+```
+
+`message_count` is the staged subset, `matched_count` the reviewed match set,
+and `skipped_count` the items no source supports deleting. Deletion covers
+Gmail-source email, so a mixed selection stages its Gmail rows and reports the
+rest as skipped rather than failing; only a selection with nothing deletable
+returns `409 selection_not_deletable`. Legacy Gmail rows with a blank
+`message_type` count as email.
+
+`selection` cannot be combined with `filter` or `message_ids`
+(`400 invalid_request`). The server re-validates the selection against the
+preflight grant before staging: the selection, its match count, and the
+cache/search revisions must be unchanged. `"dry_run": true` may be combined
+with a selection to preview the same staged subset, counts, and sample; the
+token is validated but not consumed.
 
 #### Errors
 
@@ -1571,7 +1600,8 @@ validated but not consumed.
 | `409` | `operation_token_invalid` | Token expired, already used, or does not match the selection, count, and revision |
 | `409` | `archive_revision_changed` | The analytical cache changed since preflight |
 | `409` | `search_revision_changed` | The search index revision changed since preflight |
-| `409` | `selection_not_deletable` | The selection contains items that cannot be deleted from their source |
+| `400` | `invalid_selection_predicate` | The predicate query carries an empty `from` / `to` / `cc` / `bcc` value |
+| `409` | `selection_not_deletable` | No item in the selection can be deleted from its source |
 | `409` | `selection_changed` | The matching messages changed between preflight and staging |
 
 ---
