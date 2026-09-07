@@ -36,12 +36,31 @@ func TestOpenAPIDocumentUsesAPISchemaVersion(t *testing.T) {
 }
 
 func TestDeletionSubsetSchemaVersion(t *testing.T) {
-	assert.Equal(t, "2.19.0", APISchemaVersion)
+	assert.Equal(t, "2.20.0", APISchemaVersion)
+}
+
+// TestInboxArchiveSchemaVersion pins the bump that published the inbox-archive
+// routes. A client uses the schema version to decide whether a daemon can be
+// asked at all, so the routes and the version have to move together.
+func TestInboxArchiveSchemaVersion(t *testing.T) {
+	assert := assert.New(t)
+	require := require.New(t)
+
+	assert.Equal("2.20.0", APISchemaVersion)
+
+	document := OpenAPIDocument()
+	authorize := document.Paths["/api/v1/inbox-archive/authorize"]
+	require.NotNil(authorize, "authorize route must be published")
+	assert.NotNil(authorize.Post)
+
+	execute := document.Paths["/api/v1/inbox-archive/execute"]
+	require.NotNil(execute, "execute route must be published")
+	assert.NotNil(execute.Post)
 }
 
 func TestOperationsWorkspaceSchemaVersion(t *testing.T) {
 	for _, doc := range []*huma.OpenAPI{OpenAPIDocument(), openAPIClientDocument()} {
-		assert.Equal(t, "2.19.0", doc.Info.Version)
+		assert.Equal(t, "2.20.0", doc.Info.Version)
 	}
 }
 
@@ -199,7 +218,7 @@ func TestOpenAPISeparatesParticipantAnalyticsFromDurablePeople(t *testing.T) {
 	assert := assert.New(t)
 	doc := OpenAPIDocument()
 
-	assert.Equal("2.19.0", APISchemaVersion)
+	assert.Equal("2.20.0", APISchemaVersion)
 	for _, path := range []string{
 		"/api/v1/participants/search",
 		"/api/v1/participants/{id}",
@@ -221,11 +240,11 @@ func TestOpenAPISeparatesParticipantAnalyticsFromDurablePeople(t *testing.T) {
 }
 
 func TestAnalyticsCacheReadinessUsesAdditiveSchemaVersion(t *testing.T) {
-	assert.Equal(t, "2.19.0", APISchemaVersion)
+	assert.Equal(t, "2.20.0", APISchemaVersion)
 }
 
 func TestPersonFilesUseAdditiveSchemaVersion(t *testing.T) {
-	assert.Equal(t, "2.19.0", APISchemaVersion)
+	assert.Equal(t, "2.20.0", APISchemaVersion)
 }
 
 func TestPersonFileRoutesPublishTypedPathIDs(t *testing.T) {
@@ -249,7 +268,7 @@ func TestPersonFileRoutesPublishTypedPathIDs(t *testing.T) {
 
 func TestOrganizationCreateOpenAPIDocumentsLocationHeader(t *testing.T) {
 	require := require.New(t)
-	assert.Equal(t, "2.19.0", APISchemaVersion,
+	assert.Equal(t, "2.20.0", APISchemaVersion,
 		"document and person-file search preserve the organization and employment contract")
 	for _, document := range []*huma.OpenAPI{
 		OpenAPIDocument(),
@@ -573,7 +592,7 @@ func TestOpenAPISearchDocumentsConversationID(t *testing.T) {
 func TestOpenAPIPersonAttributeContract(t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
-	assert.Equal("2.19.0", APISchemaVersion,
+	assert.Equal("2.20.0", APISchemaVersion,
 		"activity, identity match review, document search, and person files preserve the structured profile contract")
 
 	doc := OpenAPIDocument()
@@ -687,7 +706,7 @@ func TestOpenAPIPersonProfilePatchUsesWritableEnvelopeShape(t *testing.T) {
 func TestOpenAPIOrganizationProfilePutDocumentsLimits(t *testing.T) {
 	assertions := assert.New(t)
 	requirements := require.New(t)
-	assertions.Equal("2.19.0", APISchemaVersion,
+	assertions.Equal("2.20.0", APISchemaVersion,
 		"organization profile write limits advance the published contract")
 	doc := OpenAPIDocument()
 	path := doc.Paths["/api/v1/organizations/{id}/profile"]
@@ -707,7 +726,7 @@ func TestOpenAPIPersonProfileMediaContentContract(t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
 
-	assert.Equal("2.19.0", APISchemaVersion,
+	assert.Equal("2.20.0", APISchemaVersion,
 		"activity, identity match review, document search, and person files preserve the raw profile media contract")
 	doc := OpenAPIDocument()
 	path := doc.Paths["/api/v1/people/{id}/profile/media/{media_id}/content"]
@@ -735,7 +754,7 @@ func TestOpenAPIIdentityMatchReviewContract(t *testing.T) {
 	requirements := require.New(t)
 	assertions := assert.New(t)
 
-	assertions.Equal("2.19.0", APISchemaVersion,
+	assertions.Equal("2.20.0", APISchemaVersion,
 		"document and person-file search preserve the identity match review contract")
 
 	doc := OpenAPIDocument()
@@ -787,7 +806,7 @@ func TestOpenAPIMeetingImportContract(t *testing.T) {
 	// repair in 2.15.0, complete TUI search and statistics contracts plus
 	// historical import jobs in 2.16.0, collection source scopes in 2.17.0,
 	// deletion subset counts in 2.18.0, and Operations in 2.19.0 did not touch it.
-	assert.Equal("2.19.0", APISchemaVersion, "meeting import is an additive schema release")
+	assert.Equal("2.20.0", APISchemaVersion, "meeting import is an additive schema release")
 
 	doc := OpenAPIDocument()
 	path := doc.Paths["/api/v1/import/meeting"]

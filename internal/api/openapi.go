@@ -280,7 +280,12 @@ import (
 // status identifiers. It adds GET /api/v1/documents/status/current to resolve
 // status for the selected durable document profile. These Operations response
 // changes remain within the unreleased 2.x contract.
-const APISchemaVersion = "2.19.0"
+// 2.20.0 adds POST /api/v1/inbox-archive/authorize and
+// POST /api/v1/inbox-archive/execute, which remove messages from the inbox at
+// the mail provider. Both refuse unless the daemon opts in with
+// [inbox_archive] remote_enabled, so a client that finds the routes present
+// still cannot assume the capability is available.
+const APISchemaVersion = "2.20.0"
 
 // OpenAPIDocument builds the API schema from the same Huma route registration
 // used by the daemon. It binds no socket and needs no database.
