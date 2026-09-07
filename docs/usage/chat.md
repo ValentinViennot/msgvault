@@ -118,6 +118,11 @@ Desktop and mobile, and `https://claude.ai/oauth/claude-code-client-metadata`
 for Claude Code; list them exactly, because a provider's wildcard may not span
 path segments (Pocket ID's `https://claude.ai/*` matches neither).
 
+Sign in to the Web UI once before connecting an MCP client: the daemon creates
+your user at that first sign-in, and MCP calls act as that user. Until then
+every tool call fails with "acting user is not a known user", which MCP
+clients surface as an internal error.
+
 Without metadata documents, Claude Code connects with a client registered at
 the provider (a public client with PKCE and Claude Code's localhost callback):
 
