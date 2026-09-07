@@ -34,6 +34,22 @@ All notable changes to msgvault, grouped by release.
   In the TUI, press `a` to filter by account before staging again; MCP callers
   should pass `account` or stage each source separately.
 
+**Upgrade notes**
+
+- Archives with existing embeddings are migrated to generation-based coverage
+  tracking on the first writable open. Active vectors are preserved, and coverage
+  is backfilled from the active generation except for messages awaiting a
+  re-embed; the legacy `pending_embeddings` table is then dropped. An in-flight
+  rebuild is not backfilled and re-embeds its existing messages when resumed.
+  For a matching generation, scheduled embedding in `msgvault serve` handles
+  stragglers automatically with its default periodic backstop, or run
+  `msgvault embeddings resume --backstop` manually. If the fingerprint no longer
+  matches the current embedding policy or configuration, vector and hybrid search
+  report `index_stale` until a full rebuild completes:
+  `msgvault embeddings build --full-rebuild --yes`. This includes older
+  fingerprints such as v0.14's, even with unchanged configuration. See
+  [Vector Search: Upgrading an existing archive](usage/vector-search.md#upgrading-an-existing-archive).
+
 **Features**
 
 - The Email TUI scope selector now exposes named collections. Collection

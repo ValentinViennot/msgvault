@@ -343,6 +343,61 @@ self-recovers: the next edit to that message bumps `last_modified` (and
 (`embeddings build --full-rebuild`) or the periodic full-scan backstop
 re-embeds it regardless.
 
+## Upgrading an existing archive
+
+Archives that already had embeddings before the generation-based coverage
+tracking landed are migrated in place on the first writable open. There is no
+expected data loss: existing active vectors are preserved. They keep serving
+vector and hybrid search only if their fingerprint matches the current embedding
+policy and configuration. For example, generations built by v0.14 use an older
+fingerprint and require a full rebuild even with unchanged configuration; see
+[When a full rebuild is required](#when-a-full-rebuild-is-required).
+
+The migration runs the first time you start a writable daemon or run an
+embeddings command against an older database. It:
+
+- adds and stamps `messages.embed_gen`, then backfills coverage from the
+  active vector generation, so messages that already have active embeddings are
+  marked covered. This backfill does not re-queue the active generation's corpus.
+- leaves messages that had a pending re-embed against the active generation
+  uncovered rather than marking them covered, so they stay missing and the
+  scan-based worker can find and re-embed them, including below-watermark rows
+  on a backstop pass. The legacy `pending_embeddings` table is consulted for this, then
+  dropped once the migration completes.
+
+Only the active generation is backfilled. A rebuild already in flight at upgrade
+time receives no coverage stamps for its existing vectors and re-embeds those
+messages when resumed.
+
+After the upgrade, coverage is tracked entirely through `messages.embed_gen`:
+a new or changed message becomes "missing" by clearing its `embed_gen` rather
+than by being queued in a separate table. The scan-and-fill worker finds those
+rows and tops up the active generation.
+
+For a generation whose fingerprint still matches, `msgvault serve` with an embed
+schedule runs a backstop automatically on its first embed pass for each generation
+and then at the first pass after each backstop interval (24 hours by default,
+unless disabled). To finish coverage manually for stragglers left after the
+migration, run:
+
+```bash
+msgvault embeddings resume --backstop
+```
+
+`--backstop` runs a full-scan pass that ignores the per-generation watermark, so
+it catches below-watermark rows a normal incremental resume would skip. It tops
+up an already-active generation; if a rebuild is in flight, it activates the
+building generation once missing coverage reaches zero.
+
+### When a full rebuild is required
+
+If the active generation's fingerprint no longer matches the current embedding
+policy or configuration, including a policy change shipped in an upgrade, vector
+and hybrid search report `index_stale`; run
+`msgvault embeddings build --full-rebuild --yes` to build a matching generation.
+See [Model Rotation](#model-rotation) for fingerprint inputs and search behavior
+while the rebuild runs.
+
 ## Scoped Generations
 
 Large mixed archives can build a vector index for only selected message types:
@@ -490,8 +545,8 @@ msgvault embeddings build --full-rebuild --yes
 
 This builds a new generation with the new fingerprint and activates
 it atomically when the build completes. The fingerprint includes the
-model, dimension, task prefixes, preprocessing policy, `max_input_chars`, and
-embedding output policy. While the rebuild is in flight,
+model, dimension, task prefixes, preprocessing policy, `max_input_chars`,
+embedding output policy, and [scope](#scoped-generations). While the rebuild is in flight,
 `mode=vector` and `mode=hybrid` return `index_stale` (the
 previously-active generation no longer matches the configured
 fingerprint, so search refuses to serve potentially-mismatched
