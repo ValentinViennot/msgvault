@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -31,7 +32,7 @@ func (s *Store) RemoveLabelBySourceMessageIDs(
 		return 0, fmt.Errorf("source id required to remove label %q", labelName)
 	}
 	if labelName == "" {
-		return 0, fmt.Errorf("label name required")
+		return 0, errors.New("label name required")
 	}
 	if len(sourceMessageIDs) == 0 {
 		return 0, nil
@@ -88,7 +89,7 @@ func (s *Store) SourceMessageIDsMissingRFC822ID(
 	sourceMessageIDs []string,
 ) ([]string, error) {
 	if sourceID <= 0 {
-		return nil, fmt.Errorf("source id required")
+		return nil, errors.New("source id required")
 	}
 	if len(sourceMessageIDs) == 0 {
 		return nil, nil
@@ -131,16 +132,7 @@ func (s *Store) SourceMessageIDsMissingRFC822ID(
 	return missing, nil
 }
 
-// sourceMessageIDRows is the row-iteration surface both the plain and logged
-// database handles provide.
-type sourceMessageIDRows interface {
-	Next() bool
-	Scan(dest ...any) error
-	Err() error
-	Close() error
-}
-
-func scanUsableSourceMessageIDs(rows sourceMessageIDRows, usable map[string]bool) error {
+func scanUsableSourceMessageIDs(rows rowsScanner, usable map[string]bool) error {
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var id string

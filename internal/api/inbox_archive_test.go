@@ -109,7 +109,7 @@ func TestInboxArchiveAuthorizeThenExecute(t *testing.T) {
 
 	var resp InboxArchiveExecuteResponse
 	require.NoError(json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(2, int(resp.Archived))
+	assert.Equal(2, resp.Archived)
 	assert.Equal("alice@example.com", resp.Account)
 	assert.NotEmpty(resp.BatchID)
 
@@ -250,6 +250,20 @@ func TestInboxArchiveReportsUnsupportedSource(t *testing.T) {
 
 	assert.Equal(http.StatusUnprocessableEntity, w.Code)
 	assert.Equal("unsupported_source", decodeErrorEnvelope(t, w).Error)
+}
+
+func TestInboxArchiveReportsReadOnlyGrant(t *testing.T) {
+	assert := assert.New(t)
+	runner := &stubInboxArchiveRunner{err: ErrInboxArchiveScopeRequired}
+	srv := newInboxArchiveServer(t, true, runner)
+	ids := []string{"m-1"}
+
+	token := authorizeInboxArchive(t, srv, ids)
+	w := doInboxArchivePost(t, srv, "/api/v1/inbox-archive/execute",
+		InboxArchiveExecuteRequest{ConfirmationToken: token, SourceMessageIDs: ids})
+
+	assert.Equal(http.StatusForbidden, w.Code)
+	assert.Equal("scope_escalation_required", decodeErrorEnvelope(t, w).Error)
 }
 
 func TestInboxArchiveUnavailableWithoutRunner(t *testing.T) {

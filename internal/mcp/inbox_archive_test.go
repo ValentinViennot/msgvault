@@ -255,6 +255,7 @@ func TestArchiveFromInboxTranslatesDaemonRefusals(t *testing.T) {
 		{"writes disabled", ErrMailboxWritesDisabled, "mailbox_writes_disabled"},
 		{"stale token", ErrInboxArchiveTokenInvalid, "confirmation_token_invalid"},
 		{"unsupported provider", ErrInboxArchiveUnsupported, "unsupported_source"},
+		{"read-only grant", ErrInboxArchiveScopeRequired, "scope_escalation_required"},
 		{"daemon busy", ErrInboxArchiveBusy, "busy"},
 	}
 

@@ -830,6 +830,14 @@ func grantCoversDeletion(grantedScopes []string, permanent bool) bool {
 	return slices.Contains(grantedScopes, oauth.ScopeGmailModify)
 }
 
+// grantCoversInboxArchive reports whether an account's granted scopes permit
+// removing the INBOX label. Archiving needs exactly what trashing needs --
+// gmail.modify, or the full-access scope that supersedes it -- so it defers to
+// the same predicate rather than restating the rule and risking drift.
+func grantCoversInboxArchive(grantedScopes []string) bool {
+	return grantCoversDeletion(grantedScopes, false)
+}
+
 func newDeleteStagedScopeEscalation(
 	account string,
 	permanent bool,

@@ -2,6 +2,7 @@ package imap
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -128,7 +129,7 @@ func mailboxUIDs(t *testing.T, addr, mailbox string) []imapv2.UID {
 		criteria := &imapv2.SearchCriteria{UID: []imapv2.UIDSet{{{Start: 1, Stop: 0}}}}
 		data, err := conn.UIDSearch(criteria, nil).Wait()
 		if err != nil {
-			return err
+			return fmt.Errorf("UID SEARCH in %q: %w", mailbox, err)
 		}
 		uids = data.AllUIDs()
 		return nil
@@ -248,7 +249,7 @@ func TestArchiveFromInboxRefusesGmailLayoutBeforeMoving(t *testing.T) {
 	_, err := client.ArchiveFromInbox(ctx,
 		[]string{compositeID("[Gmail]/All Mail", allMail[0])})
 
-	assert.ErrorIs(err, ErrNoArchiveMailbox)
+	require.ErrorIs(err, ErrNoArchiveMailbox)
 	assert.Len(mailboxUIDs(t, addr, "[Gmail]/All Mail"), 1, "nothing may have moved")
 	assert.Len(mailboxUIDs(t, addr, "INBOX"), 1)
 }
@@ -272,6 +273,6 @@ func TestArchiveFromInboxRefusesDestinationOutsideFolderFilter(t *testing.T) {
 	defer cancel()
 	_, err := client.ArchiveFromInbox(ctx, []string{compositeID("INBOX", inbox[0])})
 
-	assert.ErrorIs(err, ErrNoArchiveMailbox)
+	require.ErrorIs(err, ErrNoArchiveMailbox)
 	assert.Len(mailboxUIDs(t, addr, "INBOX"), 1, "nothing may have moved")
 }

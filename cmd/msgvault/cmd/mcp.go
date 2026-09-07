@@ -220,6 +220,8 @@ func translateDaemonInboxArchiveErr(err error) error {
 		return fmt.Errorf("%w: %s", mcpserver.ErrInboxArchiveTokenInvalid, apiErr.Message)
 	case "unsupported_source":
 		return fmt.Errorf("%w: %s", mcpserver.ErrInboxArchiveUnsupported, apiErr.Message)
+	case "scope_escalation_required":
+		return fmt.Errorf("%w: %s", mcpserver.ErrInboxArchiveScopeRequired, apiErr.Message)
 	case "operation_in_progress", "server_busy":
 		return fmt.Errorf("%w: %s", mcpserver.ErrInboxArchiveBusy, apiErr.Message)
 	default:

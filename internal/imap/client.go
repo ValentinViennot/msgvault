@@ -1944,8 +1944,9 @@ func (c *Client) DeleteMessage(ctx context.Context, messageID string) error {
 func (c *Client) ArchiveFromInbox(
 	ctx context.Context, messageIDs []string,
 ) (map[string]error, error) {
+	failures := make(map[string]error)
 	if len(messageIDs) == 0 {
-		return nil, nil
+		return failures, nil
 	}
 
 	destination, ok, err := c.InboxArchiveTarget(ctx)
@@ -1956,7 +1957,6 @@ func (c *Client) ArchiveFromInbox(
 		return nil, ErrNoArchiveMailbox
 	}
 
-	failures := make(map[string]error)
 	convErr := c.withConn(ctx, func(conn *imapclient.Client) error {
 		for _, messageID := range messageIDs {
 			mailbox, uid, parseErr := parseCompositeID(messageID)
@@ -1984,9 +1984,6 @@ func (c *Client) ArchiveFromInbox(
 	})
 	if convErr != nil {
 		return nil, convErr
-	}
-	if len(failures) == 0 {
-		return nil, nil
 	}
 	return failures, nil
 }

@@ -33,6 +33,10 @@ var ErrInboxArchiveTokenInvalid = errors.New("inbox archive confirmation token i
 // ErrInboxArchiveUnsupported reports a source whose provider cannot archive.
 var ErrInboxArchiveUnsupported = errors.New("source does not support inbox archiving")
 
+// ErrInboxArchiveScopeRequired reports an account added read-only, whose grant
+// does not permit changing the mailbox.
+var ErrInboxArchiveScopeRequired = errors.New("account's grant does not permit mailbox changes")
+
 // ErrInboxArchiveBusy reports that the daemon is already running a mutating
 // operation and declined to queue behind it.
 var ErrInboxArchiveBusy = errors.New("daemon is busy with another operation")
@@ -198,6 +202,16 @@ func (h *handlers) archiveFromInbox(ctx context.Context, req toolRequest) (*tool
 		return h.planInboxArchive(ctx, selection, source, sourceMessageIDs, truncated)
 	}
 
+	return h.executeInboxArchive(ctx, source, sourceMessageIDs, token, truncated)
+}
+
+func (h *handlers) executeInboxArchive(
+	ctx context.Context,
+	source deletion.SourceReference,
+	sourceMessageIDs []string,
+	token string,
+	truncated bool,
+) (*toolResult, error) {
 	archiveResult, err := h.inboxArchiver.ExecuteInboxArchive(ctx, InboxArchiveExecuteRequest{
 		ConfirmationToken: token,
 		SourceMessageIDs:  sourceMessageIDs,
@@ -217,7 +231,7 @@ func (h *handlers) archiveFromInbox(ctx context.Context, req toolRequest) (*tool
 		Failed:    archiveResult.Failed,
 		Remaining: archiveResult.Remaining,
 		FailedIDs: archiveResult.FailedIDs,
-		NextStep:  inboxArchiveNextStep(archiveResult),
+		NextStep:  inboxArchiveNextStep(archiveResult, truncated),
 	})
 }
 
@@ -247,7 +261,8 @@ func (h *handlers) planInboxArchive(
 		ToolArchiveFromInbox, token)
 	if truncated {
 		nextStep += fmt.Sprintf(
-			" The selection was capped at %d messages; repeat the call afterwards to continue.",
+			" This plan covers the first %d matches and the selection may hold more; "+
+				"repeat the cycle afterwards until a plan reports no matches.",
 			maxArchiveFromInboxResults)
 	}
 
@@ -302,7 +317,11 @@ func (h *handlers) inboxArchiveSample(
 	return samples
 }
 
-func inboxArchiveNextStep(result InboxArchiveResult) string {
+// inboxArchiveNextStep says what, if anything, is left to do. truncated reports
+// that the selection itself hit the per-call cap, which the daemon cannot see:
+// it only ever received the capped list, so its own Remaining counts messages
+// left inside that list, not beyond it.
+func inboxArchiveNextStep(result InboxArchiveResult, truncated bool) string {
 	switch {
 	case result.Remaining > 0 && result.Yielded:
 		return fmt.Sprintf(
@@ -313,6 +332,11 @@ func inboxArchiveNextStep(result InboxArchiveResult) string {
 		return fmt.Sprintf(
 			"%d messages remain in this selection. Repeat the plan-then-confirm cycle to continue.",
 			result.Remaining)
+	case truncated:
+		return fmt.Sprintf(
+			"This call archived the first %d matches. The selection may hold more; "+
+				"repeat the plan-then-confirm cycle until a plan reports no matches.",
+			maxArchiveFromInboxResults)
 	case result.Failed > 0:
 		return "Some messages could not be archived and kept their inbox label; they are listed in failed_ids."
 	default:
@@ -340,6 +364,11 @@ func translateInboxArchiveErr(err error) *toolResult {
 		return toolErrorResult(
 			"unsupported_source: this account's provider cannot archive messages from the inbox. " +
 				"Only Gmail and IMAP accounts support it.")
+	case errors.Is(err, ErrInboxArchiveScopeRequired):
+		return toolErrorResult(
+			"scope_escalation_required: this account was added read-only, so its authorization " +
+				"does not permit changing the mailbox. Ask the user to re-authorize it by running " +
+				"'msgvault add-account <email>'. Nothing has been changed.")
 	case errors.Is(err, ErrInboxArchiveBusy):
 		return toolErrorResult(
 			"busy: the daemon is running another operation. Nothing has been changed; try again shortly.")

@@ -29,16 +29,21 @@ func archiveTestServer(t *testing.T, status int) (*Client, func() []recordedRequ
 	var mu sync.Mutex
 	var requests []recordedRequest
 
+	// The handler runs on the server's goroutine, where a failed assertion
+	// could not stop the test cleanly, so problems are recorded and asserted
+	// on the test's own goroutine instead.
+	var handlerErr error
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		payload, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
-
 		recorded := recordedRequest{method: r.Method, path: r.URL.Path}
-		if len(payload) > 0 {
-			require.NoError(t, json.Unmarshal(payload, &recorded.body))
+		if err == nil && len(payload) > 0 {
+			err = json.Unmarshal(payload, &recorded.body)
 		}
 
 		mu.Lock()
+		if err != nil && handlerErr == nil {
+			handlerErr = err
+		}
 		requests = append(requests, recorded)
 		mu.Unlock()
 
@@ -58,6 +63,7 @@ func archiveTestServer(t *testing.T, status int) (*Client, func() []recordedRequ
 	return client, func() []recordedRequest {
 		mu.Lock()
 		defer mu.Unlock()
+		require.NoError(t, handlerErr, "test server could not read a request")
 		out := make([]recordedRequest, len(requests))
 		copy(out, requests)
 		return out
@@ -95,7 +101,7 @@ func TestArchiveFromInboxEmptyInputIssuesNoRequest(t *testing.T) {
 
 	failures, err := client.ArchiveFromInbox(context.Background(), nil)
 	require.NoError(err)
-	assert.Nil(failures)
+	assert.Empty(failures)
 	assert.Empty(recorded())
 }
 
@@ -112,7 +118,7 @@ func TestArchiveFromInboxRefusesOversizedBatch(t *testing.T) {
 	}
 
 	_, err := client.ArchiveFromInbox(context.Background(), ids)
-	assert.Error(err)
+	require.Error(t, err)
 	assert.Empty(recorded(), "an oversized batch must not reach the API")
 }
 
@@ -125,6 +131,6 @@ func TestArchiveFromInboxPropagatesProviderErrors(t *testing.T) {
 
 	failures, err := client.ArchiveFromInbox(
 		context.Background(), []string{"msg-1"})
-	assert.Error(err)
+	require.Error(t, err)
 	assert.Empty(failures)
 }

@@ -625,8 +625,9 @@ const LabelInbox = "INBOX"
 // already out of the inbox are accepted and stay unchanged, which is what makes
 // re-running a batch safe.
 func (c *Client) ArchiveFromInbox(ctx context.Context, messageIDs []string) (map[string]error, error) {
+	failures := make(map[string]error)
 	if len(messageIDs) == 0 {
-		return nil, nil
+		return failures, nil
 	}
 	if len(messageIDs) > 1000 {
 		return nil, fmt.Errorf("batch archive limited to 1000 messages, got %d", len(messageIDs))
@@ -646,7 +647,7 @@ func (c *Client) ArchiveFromInbox(ctx context.Context, messageIDs []string) (map
 	if _, err := c.request(ctx, OpMessagesBatchModify, "POST", path, bodyBytes); err != nil {
 		return nil, err
 	}
-	return nil, nil
+	return failures, nil
 }
 
 // Ensure Client implements API interface.

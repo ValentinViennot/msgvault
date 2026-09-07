@@ -68,7 +68,8 @@ type InboxArchiver interface {
 	// A non-nil error is fatal for the whole batch: the provider refused, the
 	// grant lacks the scope, or the transport failed. Per-message problems are
 	// reported in failures, keyed by message ID; an ID absent from failures was
-	// archived (or was already out of the inbox, which is the same end state).
+	// archived (or was already out of the inbox, which is the same end state),
+	// so an empty map is the fully successful case.
 	ArchiveFromInbox(ctx context.Context, messageIDs []string) (failures map[string]error, err error)
 }
 

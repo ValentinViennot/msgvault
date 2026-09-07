@@ -50,6 +50,11 @@ type InboxArchiveRunResult struct {
 // archive messages out of the inbox.
 var ErrInboxArchiveUnsupportedSource = errors.New("source does not support inbox archiving")
 
+// ErrInboxArchiveScopeRequired reports an account whose OAuth grant was
+// narrowed to read-only. Archiving needs the same modify scope as trashing, so
+// it is refused here rather than surfaced as a provider rejection mid-batch.
+var ErrInboxArchiveScopeRequired = errors.New("account's grant does not permit mailbox changes")
+
 // InboxArchiveRunner archives messages at the mail provider.
 //
 // The implementation lives with the daemon's other provider work rather than
@@ -137,10 +142,12 @@ func inboxArchiveSelectionHash(sourceID int64, sourceMessageIDs []string) string
 	sorted := append([]string(nil), sourceMessageIDs...)
 	sort.Strings(sorted)
 
+	// hash.Hash.Write never returns an error, which is why the results are
+	// discarded rather than threaded through this function's signature.
 	digest := sha256.New()
-	fmt.Fprintf(digest, "%d\n", sourceID)
+	_, _ = fmt.Fprintf(digest, "%d\n", sourceID)
 	for _, id := range sorted {
-		fmt.Fprintf(digest, "%d:%s\n", len(id), id)
+		_, _ = fmt.Fprintf(digest, "%d:%s\n", len(id), id)
 	}
 	return hex.EncodeToString(digest.Sum(nil))
 }
@@ -265,6 +272,11 @@ func (s *Server) handleInboxArchiveExecute(w http.ResponseWriter, r *http.Reques
 	case errors.Is(err, ErrInboxArchiveUnsupportedSource):
 		writeError(w, http.StatusUnprocessableEntity, "unsupported_source",
 			"this account's provider cannot archive messages from the inbox")
+		return
+	case errors.Is(err, ErrInboxArchiveScopeRequired):
+		writeError(w, http.StatusForbidden, "scope_escalation_required",
+			"this account was added read-only; re-authorize it with "+
+				"'msgvault add-account <email>' to permit mailbox changes")
 		return
 	case err != nil:
 		writeError(w, http.StatusInternalServerError, "archive_failed", err.Error())

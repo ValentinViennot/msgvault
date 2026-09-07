@@ -35,10 +35,10 @@ func (f *fakeProvider) ArchiveFromInbox(
 		}
 		return nil, err
 	}
-	if len(f.failures) == 0 {
-		return nil, nil
-	}
 	out := map[string]error{}
+	if len(f.failures) == 0 {
+		return out, nil
+	}
 	for _, id := range ids {
 		if err, ok := f.failures[id]; ok {
 			out[id] = err
@@ -215,6 +215,7 @@ func TestArchiveYieldsBetweenChunks(t *testing.T) {
 
 func TestArchiveHonoursContextCancellation(t *testing.T) {
 	assert := assert.New(t)
+	require := require.New(t)
 
 	f := newFixture(t, "msg-1", "msg-2")
 	ctx, cancel := context.WithCancel(context.Background())
@@ -224,7 +225,7 @@ func TestArchiveHonoursContextCancellation(t *testing.T) {
 	_, err := inboxarchive.New(provider, f.store).
 		Archive(ctx, f.source, []string{"msg-1", "msg-2"})
 
-	assert.ErrorIs(err, context.Canceled)
+	require.ErrorIs(err, context.Canceled)
 	assert.Empty(provider.calls)
 }
 
@@ -233,11 +234,12 @@ func TestArchiveHonoursContextCancellation(t *testing.T) {
 // not by a nil dereference.
 func TestForRejectsSourcesThatCannotArchive(t *testing.T) {
 	assert := assert.New(t)
+	require := require.New(t)
 
 	_, err := inboxarchive.For(struct{}{}, nil)
-	assert.ErrorIs(err, inboxarchive.ErrNotSupported)
+	require.ErrorIs(err, inboxarchive.ErrNotSupported)
 
 	archiver, err := inboxarchive.For(&fakeProvider{}, nil)
-	assert.NoError(err)
+	require.NoError(err)
 	assert.NotNil(archiver)
 }

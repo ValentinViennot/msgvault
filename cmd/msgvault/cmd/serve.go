@@ -3619,6 +3619,10 @@ func (a *storeAPIAdapter) RunInboxArchive(
 		return empty, err
 	}
 
+	if err := checkInboxArchiveScope(src); err != nil {
+		return empty, err
+	}
+
 	archivable, excluded, err := a.archivableSourceMessageIDs(src, req.SourceMessageIDs)
 	if err != nil {
 		return empty, err
@@ -3649,6 +3653,57 @@ func (a *storeAPIAdapter) RunInboxArchive(
 		return out, err
 	}
 	return out, nil
+}
+
+// checkInboxArchiveScope refuses an account whose OAuth grant was narrowed to
+// read-only, before any message is touched.
+//
+// Gmail's standard grant already includes gmail.modify, so this passes for
+// ordinary accounts and needs no re-consent. Only `add-account --readonly`
+// produces a grant that cannot archive, and finding that out from a 403
+// half-way through a batch would leave the user with a partial result and an
+// opaque provider error.
+func checkInboxArchiveScope(src *store.Source) error {
+	scopes, known := recordedGmailGrantScopes(src)
+	if !known || grantCoversInboxArchive(scopes) {
+		return nil
+	}
+	return api.ErrInboxArchiveScopeRequired
+}
+
+// recordedGmailGrantScopes returns the scopes msgvault recorded for a Gmail
+// account, and whether they are known at all.
+//
+// Not knowing is the normal answer for several cases -- a non-Gmail source, a
+// service account whose scopes are requested per token source rather than
+// stored, or a token issued before scope metadata was recorded -- and in every
+// one of them the provider is the right authority. Only a recorded grant that
+// demonstrably lacks the modify scope is worth refusing up front.
+func recordedGmailGrantScopes(src *store.Source) ([]string, bool) {
+	if src.SourceType != sourceTypeGmail && src.SourceType != "" {
+		return nil, false
+	}
+	appName := sourceOAuthApp(src)
+	if cfg.OAuth.ServiceAccountKeyFor(appName) != "" {
+		return nil, false
+	}
+	clientSecrets, secretsErr := cfg.OAuth.ClientSecretsFor(appName)
+	if secretsErr != nil {
+		logger.Debug("inbox archive scope check skipped: no client secrets",
+			"source", src.Identifier, "error", secretsErr)
+		return nil, false
+	}
+	oauthMgr, mgrErr := oauth.NewManagerWithScopes(
+		clientSecrets, cfg.TokensDir(), logger, oauth.Scopes)
+	if mgrErr != nil {
+		logger.Debug("inbox archive scope check skipped: oauth manager unavailable",
+			"source", src.Identifier, "error", mgrErr)
+		return nil, false
+	}
+	if !oauthMgr.HasScopeMetadata(src.Identifier) {
+		return nil, false
+	}
+	return oauthMgr.GrantedScopes(src.Identifier), true
 }
 
 // archivableSourceMessageIDs splits a selection into the messages that can be

@@ -154,13 +154,13 @@ func TestRemoveLabelBySourceMessageIDsRejectsUnscopedCalls(t *testing.T) {
 	f := newLabelFixture(t)
 
 	_, err := f.store.RemoveLabelBySourceMessageIDs(0, "INBOX", []string{"msg-1"})
-	assert.Error(err, "an unscoped removal could touch another account")
+	require.Error(t, err, "an unscoped removal could touch another account")
 
 	_, err = f.store.RemoveLabelBySourceMessageIDs(f.source.ID, "", []string{"msg-1"})
-	assert.Error(err)
+	require.Error(t, err)
 
 	removed, err := f.store.RemoveLabelBySourceMessageIDs(f.source.ID, "INBOX", nil)
-	assert.NoError(err)
+	require.NoError(t, err)
 	assert.Zero(removed)
 }
 
@@ -220,9 +220,9 @@ func TestSourceMessageIDsMissingRFC822IDEdgeCases(t *testing.T) {
 	require.NoError(err)
 
 	missing, err := st.SourceMessageIDsMissingRFC822ID(source.ID, nil)
-	assert.NoError(err)
+	require.NoError(err)
 	assert.Empty(missing)
 
 	_, err = st.SourceMessageIDsMissingRFC822ID(0, []string{"INBOX|1"})
-	assert.Error(err, "an unscoped check could consult another account's rows")
+	require.Error(err, "an unscoped check could consult another account's rows")
 }
