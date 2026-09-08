@@ -233,3 +233,25 @@ func TestResolveMessageIDArg(t *testing.T) {
 		})
 	}
 }
+
+func TestOutputMessageLabelsSanitizedOnlyForText(t *testing.T) {
+	assert, require := assert.New(t), require.New(t)
+	label := "Résolu\x1b[2J\x1b]52;c;eA==\x07\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\"
+	msg := &query.MessageDetail{Labels: []string{label, "ordinary"}}
+	done := captureStdout(t)
+	err := outputMessageText(msg)
+	out := done()
+	require.NoError(err)
+	assert.Contains(out, "Labels:  Résolulink, ordinary\n")
+	assert.NotContains(out, "\x1b")
+
+	done = captureStdout(t)
+	err = outputMessageJSON(msg)
+	out = done()
+	require.NoError(err)
+	var got struct {
+		Labels []string `json:"labels"`
+	}
+	require.NoError(json.Unmarshal([]byte(out), &got))
+	assert.Equal([]string{label, "ordinary"}, got.Labels)
+}
